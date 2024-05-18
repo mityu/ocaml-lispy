@@ -1,2 +1,4 @@
 (library
+ (preprocessor_deps (file bootstrap.lisp))
+ (preprocess (pps ppx_blob))
  (name lispy))

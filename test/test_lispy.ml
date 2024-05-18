@@ -88,9 +88,23 @@ let test_eval_expr () =
     check [ExprSymbol "ABC"] "(if '(a) 'abc 'xyz)";
     check [ExprInt 3; ExprInt 3] "(setq x 3) x";
     check [ExprNil] "(let ((x)) x)";
+    check [ExprInt 12] "(+ 2 3 7)";
+    check [ExprInt 3] "(+ 3)";
+    check [ExprInt (-3)] "(- 3)";
+    check [ExprInt 1] "(- 3 2)";
+    check [ExprInt 6] "(- 13 2 5)";
+    check [ExprInt 7] "(* 7)";
+    check [ExprInt 105] "(* 7 3 5)";
+    check [ExprT] "(and)";
+    check [ExprInt 1] "(and 1)";
+    check [ExprSymbol "UNKNOWN"; ExprNil; ExprSymbol "OK"]
+                "(setq x 'unknown) (and 'abc (setq x 'ok) nil (setq x 'ng)) x";
+    check [ExprNil] "(or)";
+    check [ExprSymbol "UNKNOWN"; ExprSymbol "OK"; ExprSymbol "OK"]
+                "(setq x 'unknown) (or nil (setq x 'ok) 'abc (setq x 'ng)) x";
+    check [ExprInt 3] "(car '(3 5 7))";
+    check [listform_of [ExprInt 5; ExprInt 7]] "(cdr '(3 5 7))";
     ()
-
-(* let test_eval_unquote () = () *)
 
 let test_eval_macro () =
     let check v src = check ("eval: " ^ src) v (run src) in
@@ -137,6 +151,22 @@ let test_eval_scope () =
         |code});
     ()
 
+let test_eval_bootstrap () =
+    let run s =
+        let env = (Lispy.Expr.empty_denv (), Lispy.Expr.empty_lenv ()) in
+        let () = ignore @@ eval_all env (parse @@ Lispy.Bootstrap.get_src ()) in
+        eval_all env (parse s)
+    in
+    let check v src = check ("eval: " ^ src) v (run src) in
+    check [ExprInt 8] "(1+ 7)";
+    check [ExprInt 6] "(1- 7)";
+    check [ExprT] "(not nil)";
+    check [ExprNil] "(not 3)";
+    check [ExprNil] "(not t)";
+    check [ExprInt 0] "(length ())";
+    check [ExprInt 3] "(length '(1 2 3))";
+    ()
+
 let () =
     let open Alcotest in
     run "lispy"
@@ -154,5 +184,6 @@ let () =
                 test_case "macro" `Quick test_eval_macro;
                 test_case "expr" `Quick test_eval_expr;
                 test_case "scope" `Quick test_eval_scope;
+                test_case "bootstrap" `Quick test_eval_bootstrap;
             ]);
         ]

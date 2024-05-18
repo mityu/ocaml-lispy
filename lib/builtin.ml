@@ -12,6 +12,7 @@ let specific_required kind op e =
 
 let symbol_required = specific_required "Symbol"
 let list_required = specific_required "List"
+let int_required = specific_required "Int"
 
 let ensure_symbol op expr =
     match expr with
@@ -23,6 +24,11 @@ let ensure_list op expr =
         list_of_clist expr
     else
         list_required op expr
+
+let ensure_int op expr =
+    match expr with
+    | ExprInt v -> v
+    | _ -> int_required op expr
 
 
 let is_generated_symbol = String.starts_with ~prefix:"#:GSYM:"
@@ -57,14 +63,24 @@ let f_list eval env args =
     clist_of_list args
 
 let f_car eval env args =
-    match eval env args with
+    let arg =
+        match args with
+        | ExprCons (e, ExprNil) -> e
+        | _ -> unreachable ()
+    in
+    match eval env arg with
     | ExprCons (car, _) -> car
-    | _ -> list_required "CAR" args
+    | _ -> list_required "CAR" arg
 
 let f_cdr eval env args =
-    match eval env args with
+    let arg =
+        match args with
+        | ExprCons (e, ExprNil) -> e
+        | _ -> unreachable ()
+    in
+    match eval env arg with
     | ExprCons (_, cdr) -> cdr
-    | _ -> list_required "CDR" args
+    | _ -> list_required "CDR" arg
 
 let f_cons eval env args =
     let (car, cdr) =
@@ -351,6 +367,55 @@ let f_eval eval env args =
     in
     eval env expr
 
+let f_add eval env args =
+    let args = List.map (eval env) (list_of_clist args) in
+    let args = List.map (ensure_int "ADD") args in
+    let v = List.fold_left ( + ) 0 args in
+    ExprInt v
+
+let f_sub eval env args =
+    let args = List.map (eval env) (list_of_clist args) in
+    let args = List.map (ensure_int "ADD") args in
+    let (seed, args) =
+        match args with
+        | v :: [] -> (0, [v])
+        | hd :: tl -> (hd, tl)
+        | [] -> unreachable ()
+    in
+    let v = List.fold_left ( - ) seed args in
+    ExprInt v
+
+let f_mul eval env args =
+    let args = List.map (eval env) (list_of_clist args) in
+    let args = List.map (ensure_int "ADD") args in
+    let v = List.fold_left ( * ) 1 args in
+    ExprInt v
+
+let f_and eval env args =
+    let args = list_of_clist args in
+    let rec calc retval exprs =
+        match exprs with
+        | [] -> retval
+        | hd :: tl ->
+                (match eval env hd with
+                | ExprNil -> ExprNil
+                | v -> calc v tl)
+    in
+    calc ExprT args
+
+let f_or eval env args =
+    let args = list_of_clist args in
+    let rec calc exprs =
+        match exprs with
+        | [] -> ExprNil
+        | hd ::tl ->
+                (match eval env hd with
+                | ExprNil -> calc tl
+                | v -> v)
+    in
+    calc args
+
+
 let fn_table = [
     ("GENSYM", (f_gensym, Some 0, Some 0));
     ("DEFMACRO", (f_defmacro, Some 2, None));
@@ -372,6 +437,11 @@ let fn_table = [
     ("IF", (f_if, Some 3, Some 3));
     ("PROGN", (f_progn, Some 1, None));
     ("SETQ", (f_setq, Some 2, Some 2));
+    ("+", (f_add, Some 1, None));
+    ("-", (f_sub, Some 1, None));
+    ("*", (f_mul, Some 1, None));
+    ("AND", (f_and, None, None));
+    ("OR", (f_or, None, None));
 ]
 
 let find name = List.assoc_opt name fn_table
