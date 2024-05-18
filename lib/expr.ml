@@ -17,15 +17,18 @@ and spop =
     | OpQuasiQuote of expr
     | OpUnquote of expr
     | OpUnquoteSplicing of expr
-and lenv = expr ScopedTable.t  (* lexical scope environment *)
-and fn = string * lenv ref * (string list * string option) * expr list
+and lenv = {lfns: expr ScopedTable.t; lvars: expr ScopedTable.t;}  (* lexical scope environment *)
+and fn = string * lenv * (string list * string option) * expr list
 (* fn: (name, closure, (params, vaparam), body) *)
 
 (* Dynamic scope environment *)
 type denv = {fns: expr Table.t; vars: expr Table.t;}
 type env = denv * lenv
 
-let empty_lenv = ScopedTable.empty
+let empty_lenv () = {
+    lfns = ScopedTable.empty ();
+    lvars = ScopedTable.empty ();
+}
 let empty_denv () = {
     fns = Table.empty ();
     vars = Table.empty ();

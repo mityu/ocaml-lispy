@@ -56,7 +56,7 @@ let define env name expr =
     in
     let params = parse_params params in
     let (denv, lenv) = env in
-    Table.set denv.fns name (ExprMacro (name, ref lenv, params, list_of_clist body))
+    Table.set denv.fns name (ExprMacro (name, lenv, params, list_of_clist body))
 
 let apply eval env name args =
     let bind_params params vaparam args =
@@ -84,9 +84,9 @@ let apply eval env name args =
         | _ -> failwith ("Internal error: macro not found: " ^ name)
     in
     let binds = bind_params params vaparam args in
-    let menv = ScopedTable.new_scope !menv in
-    let () = List.iter (fun (n, v) -> ScopedTable.set menv n v) binds in
-    match (List.map (eval (denv, menv)) body) with
+    let lvars = ScopedTable.new_scope menv.lvars in
+    let () = List.iter (fun (n, v) -> ScopedTable.set lvars n v) binds in
+    match (List.map (eval (denv, {menv with lvars = lvars})) body) with
     | [] -> ExprNil
     | v -> List.hd (List.rev v)
 
@@ -119,7 +119,7 @@ let expand_all eval env expr =
     in
     let rec do_expand eval env expr =
         (* Check if (m ...) is expandable macro and expand macro if it is. *)
-        let (denv, _ ) = env in
+        let (denv, _) = env in
         match expr with
         | ExprCons (ExprSymbol name, args) ->
                 (match Table.find denv.fns name with

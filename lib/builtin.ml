@@ -1,6 +1,6 @@
-open Expr
-open Table
 open Err
+open Table
+open Expr
 
 let specific_required kind op e =
     let s = string_of_expr e in
@@ -117,8 +117,8 @@ let f_setq eval env args =
     let symbol = ensure_symbol "SETQ" symbol in
     let value = eval env value in
     let () =
-        match ScopedTable.find lenv symbol with
-        | Some _ -> ScopedTable.replace_existing lenv symbol value
+        match ScopedTable.find lenv.lvars symbol with
+        | Some _ -> ScopedTable.replace_existing lenv.lvars symbol value
         | None -> Table.set denv.vars symbol value
     in
     value
@@ -240,7 +240,7 @@ let f_lambda _ env args =
     let (params, body) = parse_function_definition "LAMBDA" args in
     let (_, lenv) = env in
     let name = "LAMBDA-" ^ string_of_int @@ gen_lambda_id () in
-    ExprFn (name, ref lenv, params, body)
+    ExprFn (name, lenv, params, body)
 
 let f_defun _ env args =
     let (name, fndef) =
@@ -251,7 +251,7 @@ let f_defun _ env args =
     let name = ensure_symbol "DEFUN" name in
     let (params, body) = parse_function_definition ("DEFUN: " ^ name) fndef in
     let (denv, lenv) = env in
-    let fn = ExprFn (name, ref lenv, params, body) in
+    let fn = ExprFn (name, lenv, params, body) in
     let () = Table.set denv.fns name fn in
     fn
 
@@ -276,22 +276,21 @@ let let_common recdef eval env args =
         in
         List.map ensure binds
     in
-    (* TODO: Check variable duplicates *)
     let (denv, lenv) = env in
     let lenv =
         if recdef then
             let do_bind eval env (name, value) =
                 let value = eval env value in
                 let (_, lenv) = env in
-                ScopedTable.set lenv name value
+                ScopedTable.set lenv.lvars name value
             in
-            let lenv = ScopedTable.new_scope lenv in
-            let () = List.iter (do_bind eval env) binds in
+            let lenv = {lenv with lvars = ScopedTable.new_scope lenv.lvars} in
+            let () = List.iter (do_bind eval (denv, lenv)) binds in
             lenv
         else
             let binds = List.map (fun (n, e) -> (n, eval env e)) binds in
-            let lenv = ScopedTable.new_scope lenv in
-            let () = List.iter (fun (n, v) -> ScopedTable.set lenv n v) binds
+            let lenv = {lenv with lvars = ScopedTable.new_scope lenv.lvars} in
+            let () = List.iter (fun (n, v) -> ScopedTable.set lenv.lvars n v) binds
             in
             lenv
     in
@@ -299,6 +298,50 @@ let let_common recdef eval env args =
 
 let f_let eval env args = let_common false eval env args
 let f_letstar eval env args = let_common true eval env args
+
+let flet_common recdef eval env args =
+    let op = if recdef then "LABELS" else "FLET"
+    in
+    let (binds, body) =
+        match args with
+        | ExprCons (binds, body) -> (binds, body)
+        | _ -> unreachable ()
+    in
+    let binds = ensure_list op binds in
+    let binds =
+        let err_invalid_bind expr = failwith (op ^ ": List with 2 to 3 elements required: " ^ string_of_expr expr)
+        in
+        let ensure e =
+            match e with
+            | ExprCons (symbol, ExprCons (params, expr)) ->
+                    let expr = ensure_list op expr in
+                    let symbol = ensure_symbol op symbol in
+                    let params = ensure_list op params in
+                    let params = List.map (ensure_symbol op) params in
+                    let params = parse_fn_params params in
+                    (symbol, params, expr)
+            | _ -> err_invalid_bind e
+        in
+        List.map ensure binds
+    in
+    let (denv, lenv) = env in
+    let lenv =
+        let lenv' = {lenv with lfns = ScopedTable.new_scope lenv.lfns}  in
+        let do_bind lenv (symbol, params, expr) =
+            let fn = ExprFn (symbol, lenv, params, expr) in
+            ScopedTable.set lenv'.lfns symbol fn
+        in
+        if recdef then
+            let () = List.iter (do_bind lenv') binds in
+            lenv'
+        else
+            let () = List.iter (do_bind lenv) binds in
+            lenv'
+    in
+    eval_body eval (denv, lenv) (list_of_clist body)
+
+let f_flet eval env args = flet_common false eval env args
+let f_labels eval env args = flet_common true eval env args
 
 let f_eval eval env args =
     let expr =
@@ -324,6 +367,8 @@ let fn_table = [
     ("DEFUN", (f_defun, Some 2, None));
     ("LET", (f_let, Some 1, None));
     ("LET*", (f_letstar, Some 1, None));
+    ("FLET", (f_flet, Some 1, None));
+    ("LABELS", (f_labels, Some 1, None));
     ("IF", (f_if, Some 3, Some 3));
     ("PROGN", (f_progn, Some 1, None));
     ("SETQ", (f_setq, Some 2, Some 2));

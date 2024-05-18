@@ -22,7 +22,7 @@ let check = Alcotest.(check (list expr_t))
 let check_failure = Alcotest.check_raises "failwith call"
 
 let listform_of = clist_of_list
-let fn_of name = ExprFn (name, ref @@ empty_lenv (), ([], None), [])
+let fn_of name = ExprFn (name, empty_lenv (), ([], None), [])
 
 let test_parse () =
     let check v src = check ("parse: " ^ src) v (parse src) in
@@ -111,6 +111,22 @@ let test_eval_scope () =
             (defmacro m () ''macro)
             (defun m () 'fn)
             (m)
+        |code});
+    check [fn_of "F"; ExprSymbol "OUTER"; ExprSymbol "OUTER"]
+        (run {code|
+            (defun f (x) 'OUTER)
+            (flet ((f (x)
+                        (if x (f x) 'INNER)))
+                (f 'x))
+            (f 'x)
+        |code});
+    check [fn_of "F"; ExprSymbol "INNER"; ExprSymbol "OUTER"]
+        (run {code|
+            (defun f (x) 'OUTER)
+            (labels ((f (x)
+                        (if x (f nil) 'INNER)))
+                (f 'x))
+            (f 'x)
         |code});
     check_failure (Failure "No such symbol: #'M") (fun () -> ignore @@ run {code|
             (defun m () 'fun)
