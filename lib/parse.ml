@@ -93,6 +93,10 @@ let parse src =
                 | i, Some (ExprSymbol s) ->
                         if is_number s then
                             (i, Some (ExprInt (int_of_string s)))
+                        else if s = "NIL" then
+                            (i, Some (ExprNil))
+                        else if s = "T" then
+                            (i, Some (ExprT))
                         else
                             r
                 | _ -> unreachable ())
@@ -205,14 +209,20 @@ let parse src =
         let (i', exp) = parse_exp i false in
         match exp with
         | None -> failwith "No expression follows after '"
-        | Some exp -> (i', Some (ExprSpOp (OpQuote exp)))
+        | Some exp ->
+                (match exp with
+                | ExprNil | ExprT -> (i', Some exp)
+                | _ -> (i', Some (ExprSpOp (OpQuote exp))))
     and readmacro_backquote i =
         let i = ensure_char i '`' in
         let i = skip_white i in
         let (i', exp) = parse_exp i true in
         match exp with
         | None -> failwith "No expression follows after `"
-        | Some exp -> (i', Some (ExprSpOp (OpQuasiQuote exp)))
+        | Some exp ->
+                (match exp with
+                | ExprNil | ExprT -> (i', Some exp)
+                | _ -> (i', Some (ExprSpOp (OpQuasiQuote exp))))
     and readmacro_unquote i quasiquote =
         let i = ensure_char i ',' in
         let () = if Bool.not quasiquote then failwith "Illegal comma outside of backquote" in

@@ -36,6 +36,12 @@ let test_parse () =
     check [ExprInt (-123)] "-123";
     check [ExprSymbol "+-123"] "+-123";
     check [ExprCons (ExprInt 1, ExprInt 2)] "(1 . 2)";
+    check [ExprNil] "()";
+    check [ExprNil] "nil";
+    check [ExprNil] "'()";
+    check [ExprNil] "'nil";
+    check [ExprT] "t";
+    check [ExprT] "'t";
     ()
 
 let test_expr_is_list () =

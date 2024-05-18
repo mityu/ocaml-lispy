@@ -4,6 +4,7 @@ open Err
 type expr =
     | ExprSymbol of string
     | ExprNil
+    | ExprT
     | ExprCons of expr * expr
     | ExprInt of int
     | ExprString of string
@@ -79,6 +80,7 @@ let rec string_of_expr e =
     match e with
     | ExprSymbol s -> s
     | ExprNil -> "NIL"
+    | ExprT -> "T"
     | ExprCons (e1, e2) -> string_of_cons (e1, e2)
     | ExprInt v -> string_of_int v
     | ExprString s -> "\"" ^ s ^ "\""
