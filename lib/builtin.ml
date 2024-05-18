@@ -269,7 +269,10 @@ let let_common recdef eval env args =
             | ExprCons (symbol, ExprCons (expr, ExprNil)) ->
                     let symbol = ensure_symbol op symbol in
                     (symbol, expr)
-            | _ -> failwith (op ^ ": List with two elements required: " ^ string_of_expr e)
+            | ExprCons (symbol, ExprNil) ->
+                    let symbol = ensure_symbol op symbol in
+                    (symbol, ExprNil)
+            | _ -> failwith (op ^ ": List with 1 to 2 element(s) required: " ^ string_of_expr e)
         in
         List.map ensure binds
     in

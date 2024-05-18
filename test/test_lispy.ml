@@ -85,6 +85,7 @@ let test_eval_expr () =
     check [ExprSymbol "XYZ"] "(if () 'abc 'xyz)";
     check [ExprSymbol "ABC"] "(if '(a) 'abc 'xyz)";
     check [ExprInt 3; ExprInt 3] "(setq x 3) x";
+    check [ExprNil] "(let ((x)) x)";
     ()
 
 (* let test_eval_unquote () = () *)
