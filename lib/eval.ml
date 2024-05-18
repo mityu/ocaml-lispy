@@ -29,6 +29,24 @@ let lookup_symbol env symbol =
         | None -> Table.find denv.vars symbol
         | v -> v
 
+let rec unquote eval env expr =
+    match expr with
+    | ExprCons (ExprSpOp op, e2) ->
+            (match op with
+            | OpUnquote e1 -> let e1 = eval env e1 in ExprCons (e1, e2)
+            | OpUnquoteSplicing e1 ->
+                    let e1 = eval env e1 in
+                    ExprCons (e1, ExprCons (e2, ExprNil))
+            | _ -> expr)
+    | ExprCons (e1, e2) ->
+            ExprCons (e1, unquote eval env e2)
+    | ExprSpOp op ->
+            (match op with
+            | OpUnquote expr' -> eval env expr'
+            | OpUnquoteSplicing _ -> failwith "The syntax `,@form is invalid."
+            | _ -> expr)
+    | _ -> expr
+
 let rec eval env expr =
     match expr with
     | ExprSymbol symbol ->
@@ -36,21 +54,26 @@ let rec eval env expr =
             (match v with
             | None -> failwith ("No such symbol: " ^ symbol)
             | Some v -> v)
-    | ExprCons (e1, e2) ->
-            let e1 = eval env e1 in
-            let e2 = eval env e2 in
-            ExprCons (e1, e2)
-    | ExprList _ ->
+    | ExprCons _ ->
+            (* print_endline @@ string_of_expr expr;                              *)
+            (* print_endline @@ string_of_expr @@ Macro.expand_all eval env expr; *)
             (match Macro.expand_all eval env expr with
-            | ExprList l ->
-                    (match l with
-                    | [] -> ExprList []
-                    | symbol :: args -> apply_function env symbol args)
-            | v -> v)
+            | ExprCons (symbol, args) -> apply_function env symbol args
+            | v -> eval env v)
+    | ExprSpOp op ->
+            (match op with
+            | OpQuote expr -> expr
+            | OpQuasiQuote expr -> unquote eval env expr
+            | _ -> unreachable ())
     | expr -> expr
 and apply_function env symbol args =
+    let () =
+        if Bool.not @@ is_list args then
+            let src = string_of_expr (ExprCons (symbol, args)) in
+            failwith ("List required for function application: " ^ src)
+    in
     let err_invalid_app () =
-        let src = string_of_expr (ExprList (symbol :: args)) in
+        let src = string_of_expr (ExprCons (symbol, args)) in
         failwith ("Invalid function application: " ^ src)
     in
     let symbol =
@@ -70,13 +93,13 @@ and apply_builtin_function env name args =
         | None -> unreachable ()
         | Some fn -> fn
     in
-    let nargs = List.length args in
+    let nargs = List.length @@ list_of_clist args in
     let () =
         match nargs_min with
         | None -> ()
         | Some nargs_min ->
                 if nargs < nargs_min then
-                    let exp = string_of_expr (ExprList (ExprSymbol name :: args)) in
+                    let exp = string_of_expr (ExprCons (ExprSymbol name, args)) in
                     failwith ("Too few arguments for " ^ name  ^ ": " ^ exp)
     in
     let () =
@@ -84,7 +107,7 @@ and apply_builtin_function env name args =
         | None -> ()
         | Some nargs_max ->
                 if nargs > nargs_max then
-                    let exp = string_of_expr (ExprList (ExprSymbol name :: args)) in
+                    let exp = string_of_expr (ExprCons (ExprSymbol name, args)) in
                     failwith ("Too many arguments for " ^ name  ^ ": " ^ exp)
     in
     fn eval env args
@@ -92,11 +115,11 @@ and apply_user_function env fn args =
     let rec bind_args lenv params vaparam args =
         (* Bind function arguments in environment in function closure *)
         match params, vaparam, args with
-        | hdp :: tlp, _, hda :: tla ->
+        | hdp :: tlp, _, ExprCons (hda, tla) ->
                 let () = ScopedTable.set lenv hdp hda in
                 bind_args lenv tlp vaparam tla
-        | [], Some vaparam, rest -> ScopedTable.set lenv vaparam (ExprList rest)
-        | [], None, [] -> ()  (* Already bound all the values.  Do nothing. *)
+        | [], Some vaparam, rest -> ScopedTable.set lenv vaparam rest
+        | [], None, ExprNil -> ()  (* Already bound all the values.  Do nothing. *)
         | _ ->
                 (*
                    Correspondance between the count of function parameters and
@@ -106,7 +129,7 @@ and apply_user_function env fn args =
                 unreachable ()
     in
     let (fn_name, fnenv, (params, vaparam), body) = fn in
-    let nargs = List.length args in
+    let nargs = List.length @@ list_of_clist args in
     let nparams = List.length params in
     let () =
         if nargs < nparams then
@@ -117,12 +140,13 @@ and apply_user_function env fn args =
     let args =
         let rec eval_args acc env args =
             match args with
-            | [] -> List.rev acc
-            | hd :: tl ->
+            | ExprNil -> rev_clist acc
+            | ExprCons (hd, tl) ->
                     let v = eval env hd in
-                    eval_args (v :: acc) env tl
+                    eval_args (ExprCons (v, acc)) env tl
+            | _ -> unreachable ()
         in
-        eval_args [] env args
+        eval_args ExprNil env args
     in
     let fnenv = ScopedTable.new_scope !fnenv in
     let () = bind_args fnenv params vaparam args in
@@ -133,7 +157,7 @@ and apply_user_function env fn args =
         | hd :: tl -> do_eval (eval env hd) env tl
     in
     (* Evaluate the function body under the environment in the function closure *)
-    do_eval (ExprList []) (denv, fnenv) body
+    do_eval ExprNil (denv, fnenv) body
 
 
 let eval_all env exprs =

@@ -19,9 +19,10 @@ let ensure_symbol op expr =
     | _ -> symbol_required op expr
 
 let ensure_list op expr =
-    match expr with
-    | ExprList l -> l
-    | _ -> list_required op expr
+    if is_list expr then
+        list_of_clist expr
+    else
+        list_required op expr
 
 
 let is_generated_symbol = String.starts_with ~prefix:"#:GSYM:"
@@ -40,7 +41,7 @@ let eval_body eval env body =
         | [] -> retval
         | hd :: tl -> do_eval (eval env hd) eval env tl
     in
-    do_eval (ExprList []) eval env body
+    do_eval ExprNil eval env body
 
 let f_gensym =
     let id = ref 0 in
@@ -52,105 +53,65 @@ let f_gensym =
     gensym
 
 let f_list eval env args =
-    let args = List.map (eval env) args in
-    ExprList args
+    let args = List.map (eval env) (list_of_clist args) in
+    clist_of_list args
 
 let f_car eval env args =
-    let expr =
-        match args with
-        | expr :: [] -> expr
-        | _ -> unreachable ()
-    in
-    match eval env expr with
-    | ExprList l ->
-            (match l with
-            | [] -> ExprList []
-            | hd :: _ -> hd)
-    | _ -> list_required "CAR" expr
+    match eval env args with
+    | ExprCons (car, _) -> car
+    | _ -> list_required "CAR" args
 
 let f_cdr eval env args =
-    let expr =
-        match args with
-        | expr :: [] -> expr
-        | _ -> unreachable ()
-    in
-    match eval env expr with
-    | ExprList l ->
-            (match l with
-            | [] -> ExprList []
-            | _ :: tl -> ExprList tl)
-    | _ -> list_required "CDR" expr
+    match eval env args with
+    | ExprCons (_, cdr) -> cdr
+    | _ -> list_required "CDR" args
 
 let f_cons eval env args =
     let (car, cdr) =
         match args with
-        | car :: cdr :: [] -> (car, cdr)
+        | ExprCons (car, cdr) -> (car, cdr)
         | _ -> unreachable ()
     in
     let car = eval env car in
     let cdr = eval env cdr in
-    let cdr = ensure_list "CONS" cdr in
-    ExprList (car :: cdr)
+    match cdr with
+    | ExprCons _ -> ExprCons (car, cdr)
+    | _ -> list_required "CONS" cdr
 
 let f_append eval env args =
+    let rec rev_append lhs rhs =
+        match lhs with
+        | ExprCons (e1, ExprNil) -> ExprCons (e1, rhs)
+        | ExprCons (e1, e2) -> rev_append e2 (ExprCons (e1, rhs))
+        | _ -> unreachable ()
+    in
     let ensure_evaluated_in_list env exp =
         match eval env exp with
-        | ExprList l -> l
+        | ExprCons (e1, e2) -> ExprCons (e1, e2)
         | _ -> list_required "APPEND" exp
     in
     let (lhs, rhs) =
-        match args with
+        match list_of_clist args with
         | lhs :: rhs :: [] -> (lhs, rhs)
         | _ -> unreachable ()
     in
     let lhs = ensure_evaluated_in_list env lhs in
     let rhs = ensure_evaluated_in_list env rhs in
-    ExprList (List.append lhs rhs)
+    rev_append (rev_clist lhs) rhs
 
 let f_quote eval env args =
-    let rec unquote_in_list acc eval env exprs =
-        let do_unquote splicing expr tl =
-            let expr =
-                match expr with
-                | e :: [] -> e
-                | _ -> unreachable ()
-            in
-            let tl = unquote_in_list [] eval env tl in
-            let expr = eval env expr in
-            if splicing then
-                ExprList [ExprSymbol "#:APPEND"; expr; tl]
-            else
-                ExprList [ExprSymbol "#:CONS"; expr; tl]
-        in
-        match exprs with
-        | [] -> ExprList (List.rev acc)
-        | ExprList (ExprSymbol "#:UNQUOTE" :: expr) :: tl ->
-                do_unquote false expr tl
-        | ExprList (ExprSymbol "#:UNQUOTE-SPLICING" :: expr) :: tl ->
-                do_unquote true expr tl
-        | hd :: tl -> unquote_in_list (hd :: acc) eval env tl
+    let expr =
+        match args with
+        | ExprCons (e, ExprNil) -> e
+        | _ -> unreachable ()
     in
-    let unquote eval env expr =
-        match expr with
-        | ExprList (ExprSymbol "#:UNQUOTE" :: tl) ->  (* Handles `,x *)
-                (match tl with
-                | expr :: [] -> eval env expr
-                | _ -> unreachable ())
-        | ExprList (ExprSymbol "#:UNQUOTE-SPLICING" :: _) ->  (* Handles `,@x *)
-                failwith "Synbax `,@form is invalid"
-        | ExprList l ->  (* Handles `(... ,x ...) *)
-                unquote_in_list [] eval env l
-        | ExprCons _ -> todo ()  (* TODO: fix this when we introduce cons list *)
-        | _ -> expr
-    in
-    let expr = List.hd args in
-    unquote eval env expr
+    eval env (ExprSpOp (OpQuote expr))
 
 let f_setq eval env args =
     let (denv, lenv) = env in
     let (symbol, value) =
         match args with
-        | e1 :: e2 :: [] -> (e1, e2)
+        | ExprCons (e1, ExprCons (e2, ExprNil)) -> (e1, e2)
         | _ -> unreachable ()
     in
     let symbol = ensure_symbol "SETQ" symbol in
@@ -165,32 +126,32 @@ let f_setq eval env args =
 let f_progn eval env args =
     let () =
         match args with
-        | [] -> unreachable ()
+        | ExprNil -> unreachable ()
         | _ -> ()
     in
     let rec do_eval env args =
         match args with
-        | [] -> unreachable ()
-        | e :: [] -> eval env e
-        | hd :: tl -> let () = ignore (eval env hd) in do_eval env tl
+        | ExprCons (e, ExprNil) -> eval env e
+        | ExprCons (hd, tl) -> let () = ignore (eval env hd) in do_eval env tl
+        | _ -> unreachable ()
     in
     do_eval env args
 
 let f_if eval env args =
     let (cond, ifthen, ifelse) =
-        match args with
-        | e1 :: e2 :: e3 :: _ -> (e1, e2, e3)
+        match list_of_clist args with
+        | e1 :: e2 :: e3 :: [] -> (e1, e2, e3)
         | _ -> unreachable ()
     in
     let cond = eval env cond in
     match cond with
-    | ExprList [] -> eval env ifelse
+    | ExprNil -> eval env ifelse
     | _ -> eval env ifthen
 
 let f_defmacro _ env args =
     let (name, expr) =
         match args with
-        | hd :: tl -> (hd, tl)
+        | ExprCons (hd, tl) -> (hd, tl)
         | _ -> unreachable ()
     in
     let name = ensure_symbol "DEFMACRO" name in
@@ -201,19 +162,19 @@ let (f_macroexpand_1, f_macroexpand) =
     let eval_args eval env args =
         let expr =
             match args with
-            | e :: [] -> e
+            | ExprCons (e, ExprNil) -> e
             | _ -> unreachable ()
         in
         eval env expr
     in
     let find_macro table expr =
-        let elems =
+        let (name, args) =
             match expr with
-            | ExprList l -> l
+            | ExprCons (e1, e2) -> (e1, e2)
             | _ -> unreachable ()
         in
-        match elems with
-        | ExprSymbol name :: args ->
+        match name with
+        | ExprSymbol name ->
                 (match Table.find table name with
                 | Some (ExprMacro _) -> Some (name, args)
                 | _ -> None)
@@ -256,7 +217,7 @@ let parse_fn_params params =
 
 let parse_function_definition op defs =
     let (params, body) =
-        match defs with
+        match list_of_clist defs with
         | hd :: tl -> (hd, tl)
         | _ -> unreachable ()
     in
@@ -284,7 +245,7 @@ let f_lambda _ env args =
 let f_defun _ env args =
     let (name, fndef) =
         match args with
-        | name :: fndef -> (name, fndef)
+        | ExprCons (name, fndef) -> (name, fndef)
         | _ -> unreachable ()
     in
     let name = ensure_symbol "DEFUN" name in
@@ -298,14 +259,14 @@ let let_common recdef eval env args =
     let op = if recdef then "LET*" else "LET" in
     let (binds, body) =
         match args with
-        | binds :: body -> (binds, body)
+        | ExprCons (binds, body) -> (binds, body)
         | _ -> unreachable ()
     in
     let binds = ensure_list op binds in
     let binds =
         let ensure e =
             match e with
-            | ExprList (symbol :: expr :: []) ->
+            | ExprCons (symbol, ExprCons (expr, ExprNil)) ->
                     let symbol = ensure_symbol op symbol in
                     (symbol, expr)
             | _ -> failwith (op ^ ": List with two elements required: " ^ string_of_expr e)
@@ -331,7 +292,7 @@ let let_common recdef eval env args =
             in
             lenv
     in
-    eval_body eval (denv, lenv) body
+    eval_body eval (denv, lenv) (list_of_clist body)
 
 let f_let eval env args = let_common false eval env args
 let f_letstar eval env args = let_common true eval env args
@@ -339,7 +300,7 @@ let f_letstar eval env args = let_common true eval env args
 let f_eval eval env args =
     let expr =
         match args with
-        | e :: [] -> e
+        | ExprCons (e, ExprNil) -> e
         | _ -> unreachable ()
     in
     eval env expr

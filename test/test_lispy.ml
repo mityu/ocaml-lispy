@@ -18,50 +18,79 @@ let run s =
     let env = (Lispy.Expr.empty_denv (), Lispy.Expr.empty_lenv ()) in
     eval_all env (parse s)
 
-let check = Alcotest.(check (list expr_t)) "same expr"
+let check = Alcotest.(check (list expr_t))
 let check_failure = Alcotest.check_raises "failwith call"
 
-let listform_of l = ExprList l
+let listform_of = clist_of_list
 let fn_of name = ExprFn (name, ref @@ empty_lenv (), ([], None), [])
 
 let test_parse () =
-    check [listform_of [ExprSymbol "#:QUOTE"; ExprSymbol "XYZ"]] (parse "'xyz");
+    let check v src = check ("parse: " ^ src) v (parse src) in
+    check [ExprSpOp (OpQuote (ExprSymbol "XYZ"))] "'xyz";
     check
-        [listform_of [
-            ExprSymbol "#:QUOTE";
-            ExprList [listform_of [ExprSymbol "#:UNQUOTE"; ExprSymbol "X"]]
-        ]]
-        (parse "`(,x)");
-    check [ExprInt 123] (parse "123");
-    check [ExprInt 123] (parse "+123");
-    check [ExprInt (-123)] (parse "-123");
-    check [ExprSymbol "+-123"] (parse "+-123");
+        [ExprSpOp (OpQuasiQuote (listform_of [
+                ExprSpOp (OpUnquote (ExprSymbol "X"))]))]
+        "`(,x)";
+    check [ExprInt 123] "123";
+    check [ExprInt 123] "+123";
+    check [ExprInt (-123)] "-123";
+    check [ExprSymbol "+-123"] "+-123";
+    check [ExprCons (ExprInt 1, ExprInt 2)] "(1 . 2)";
+    ()
+
+let test_expr_is_list () =
+    let check = Alcotest.(check bool) in
+    let check v src = check ("is_list: " ^ src) v (is_list @@ List.hd @@ parse src) in
+    check true "()";
+    check true "(1 2 3)";
+    check true "(1 . ())";
+    check false "(1 . (2 . 3))";
+    check false "(1 . 2)";
+    ()
+
+let test_expr_clist_of_list () =
+    let check = Alcotest.(check expr_t) in
+    let check v l = check ("cilst_of_exprs") v (clist_of_list l) in
+    check (ExprCons (ExprInt 5, ExprCons (ExprInt 11, ExprNil))) [ExprInt 5; ExprInt 11];
+    ()
+
+let test_expr_list_of_clist () =
+    let check = Alcotest.(check (list expr_t)) in
+    let check v =
+        let clist = clist_of_list v in
+        check ("list_of_clist: " ^ string_of_expr clist) v (list_of_clist clist) in
+    check [ExprInt 3; ExprInt 5];
     ()
 
 let test_eval_value () =
-    check [ExprSymbol "FOO"] (run "'foo");
-    check [ExprSymbol "XYZ"] (run "' xyz");
+    let check v src = check ("eval: " ^ src) v (run src) in
+    check [ExprSymbol "FOO"] "'foo";
+    check [ExprSymbol "XYZ"] "' xyz";
+    ()
+
+let test_eval_expr () =
+    let check v src = check ("eval: " ^ src) v (run src) in
+    check [ExprSymbol "XYZ"] "(quote xyz)";
+    check [listform_of [ExprSymbol "QUOTE"; ExprSymbol "XYZ"]] "'(quote xyz)";
+    check [fn_of "F"; fn_of "F"] "(defun f ()) #'f";
+    check [fn_of "F"; ExprSymbol "XYZ"] "(defun f () 'xyz) (f)";
+    check [fn_of "F"; ExprInt 3] "(defun f (x) x) (f 3)";
+    check [ExprSymbol "VAL"] "(let ((x 'val)) x)";
+    check [ExprSymbol "XYZ"] "(if () 'abc 'xyz)";
+    check [ExprSymbol "ABC"] "(if '(a) 'abc 'xyz)";
+    check [ExprInt 3; ExprInt 3] "(setq x 3) x";
     ()
 
 (* let test_eval_unquote () = () *)
 
 let test_eval_macro () =
-    check [ExprSymbol "M"; ExprSymbol "MACRO-M"] (run "(defmacro m () 'macro-m) (m)");
-    check [ExprSymbol "M"; ExprSymbol "ABC"] (run "(defmacro m (x) `,x) (m 'abc)");
-    ()
-
-let test_eval_expr () =
-    check [ExprSymbol "XYZ"] (run "(quote xyz)");
-    check [ExprList [ExprSymbol "QUOTE"; ExprSymbol "XYZ"]] (run "'(quote xyz)");
-    check [fn_of "F"; fn_of "F"] (run "(defun f ()) #'f");
-    check [ExprSymbol "VAL"] (run "(let ((x 'val)) x)");
-    check [ExprSymbol "XYZ"] (List.tl (run "(defun f () 'xyz) (f)"));
-    check [ExprSymbol "ARG"] (List.tl (run "(defun f (x) x) (f 'arg)"));
-    check [ExprSymbol "XYZ"] (run "(if () 'abc 'xyz)");
-    check [ExprSymbol "ABC"] (run "(if '(a) 'abc 'xyz)");
+    let check v src = check ("eval: " ^ src) v (run src) in
+    check [ExprSymbol "M"; ExprSymbol "MACRO-M"] "(defmacro m () ''macro-m) (m)";
+    check [ExprSymbol "M"; ExprSymbol "ABC"] "(defmacro m (x) `,x) (m 'abc)";
     ()
 
 let test_eval_scope () =
+    let check = check "same expr" in
     let last_value retvals = [List.hd @@ List.rev retvals] in
     check [ExprSymbol "MACRO"]
         (last_value @@ run {code|
@@ -87,6 +116,11 @@ let () =
     let open Alcotest in
     run "lispy"
         [
+            ("expr", [
+                test_case "is_list" `Quick test_expr_is_list;
+                test_case "clist_of_list" `Quick test_expr_clist_of_list;
+                test_case "list_of_clist" `Quick test_expr_list_of_clist;
+            ]);
             ("parse", [
                 test_case "parse" `Quick test_parse;
             ]);

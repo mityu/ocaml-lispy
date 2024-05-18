@@ -103,18 +103,43 @@ let parse src =
             | _ -> unreachable ()
         in
         let err_unclosed = "Unclosed parenthesis" in
-        let rec do_parse elems i quasiquote =
+        let rec do_parse acc i quasiquote explicit_cons =
             let i = skip_white i in
             let (i', c) = read_char i in
             match c with
             | None -> failwith err_unclosed
-            | Some ')' -> (i', Some (ExprList (List.rev elems)))
+            | Some ')' ->
+                    let rec into_cons_list acc l =
+                        match l with
+                        | [] -> acc
+                        | hd :: tl -> into_cons_list (ExprCons (hd, acc)) tl
+                    in
+                    let (seed, elems) =
+                        if explicit_cons then
+                            let (e1, e2, rest) =
+                                (match acc with
+                                | e1 :: e2 :: rest -> (e1, e2, rest)
+                                | _ -> unreachable ())
+                            in
+                            (ExprCons (e2, e1), rest)
+                        else
+                            (ExprNil, acc)
+                    in
+                    (i', Some (into_cons_list seed elems))
             | _ ->
                     let (i', e) = parse_exp i quasiquote in
                     let e = unwrap e err_unclosed in
-                    do_parse (e :: elems) i' quasiquote
+                    (match e with
+                    | ExprSymbol "." ->
+                            if explicit_cons then
+                                failwith "Invalid use of dot here."
+                            else if acc = [] then
+                                failwith "An expression must be before dot."
+                            else
+                                do_parse acc i' quasiquote true
+                    | e -> do_parse (e :: acc) i' quasiquote explicit_cons)
         in
-        do_parse [] i quasiquote
+        do_parse [] i quasiquote false
     and parse_symbol i =
         let rec do_parse acc i in_bar keptcase =
             let (i', c) = read_char i in
@@ -180,14 +205,14 @@ let parse src =
         let (i', exp) = parse_exp i false in
         match exp with
         | None -> failwith "No expression follows after '"
-        | Some exp -> (i', Some (ExprList [ExprSymbol "#:QUOTE"; exp]))
+        | Some exp -> (i', Some (ExprSpOp (OpQuote exp)))
     and readmacro_backquote i =
         let i = ensure_char i '`' in
         let i = skip_white i in
         let (i', exp) = parse_exp i true in
         match exp with
         | None -> failwith "No expression follows after `"
-        | Some exp -> (i', Some (ExprList [ExprSymbol "#:QUOTE"; exp]))
+        | Some exp -> (i', Some (ExprSpOp (OpQuasiQuote exp)))
     and readmacro_unquote i quasiquote =
         let i = ensure_char i ',' in
         let () = if Bool.not quasiquote then failwith "Illegal comma outside of backquote" in
@@ -205,9 +230,12 @@ let parse src =
         let (i'', exp) = parse_exp i' quasiquote in
         match exp with
         | Some exp ->
-                let op = "#:UNQUOTE" in
-                let op = if splicing then op ^ "-SPLICING" else op in
-                let exp = ExprList [ExprSymbol op; exp] in
+                let exp =
+                    if splicing then
+                        ExprSpOp (OpUnquoteSplicing exp)
+                    else
+                        ExprSpOp (OpUnquote exp)
+                in
                 (i'', Some exp)
         | _ -> failwith ("No expression follows after " ^ (if splicing then ",@" else ","))
     in

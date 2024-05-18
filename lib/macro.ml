@@ -1,3 +1,4 @@
+open Err
 open Expr
 open Table
 
@@ -38,13 +39,14 @@ let define env name expr =
     in
     let (params, body) =
         match expr with
-        | params :: body -> (params, body)
+        | ExprCons (params, body) -> (params, body)
         | _ -> failwith "At least one argument is reauired."
     in
     let params =
-        match params with
-        | ExprList l -> l
-        | _ -> failwith ("List required: " ^ string_of_expr params)
+        if is_list params then
+            list_of_clist params
+        else
+            failwith ("List required: " ^ string_of_expr params)
     in
     let params = List.map ensure_symbol params in
     let () =
@@ -54,25 +56,26 @@ let define env name expr =
     in
     let params = parse_params params in
     let (denv, lenv) = env in
-    Table.set denv.fns name (ExprMacro (name, ref lenv, params, body))
+    Table.set denv.fns name (ExprMacro (name, ref lenv, params, list_of_clist body))
 
 let apply eval env name args =
-    let bind_params params vaparams args =
-        let rec bind acc params vaparams args =
+    let bind_params params vaparam args =
+        let rec bind acc params vaparam args =
             match params, args with
-            | [], [] ->
-                    (match vaparams with
+            | [], ExprNil ->
+                    (match vaparam with
                     | None -> acc
-                    | Some vaparams -> (vaparams, ExprList []) :: acc)
-            | [], _ :: _ ->
-                    (match vaparams with
-                    | Some vaparams -> (vaparams, ExprList args) :: acc
+                    | Some vaparam -> (vaparam, ExprNil) :: acc)
+            | [], ExprCons (e1, e2) ->
+                    (match vaparam with
+                    | Some vaparam -> (vaparam, ExprCons (e1, e2)) :: acc
                     | None -> failwith (name ^ ": Too much arguments"))
-            | _, [] -> failwith (name ^ ": Too few arguments")
-            | phd :: ptl, ahd :: atl ->
-                    bind ((phd, ahd) :: acc) ptl vaparams atl
+            | _, ExprNil -> failwith (name ^ ": Too few arguments")
+            | hdp :: tlp, ExprCons (hda, tla) ->
+                    bind ((hdp, hda) :: acc) tlp vaparam tla
+            | _ -> unreachable ()
         in
-        bind [] params vaparams args
+        bind [] params vaparam args
     in
     let (denv, _) = env in
     let (_, menv, (params, vaparam), body) =
@@ -84,21 +87,50 @@ let apply eval env name args =
     let menv = ScopedTable.new_scope !menv in
     let () = List.iter (fun (n, v) -> ScopedTable.set menv n v) binds in
     match (List.map (eval (denv, menv)) body) with
-    | [] -> ExprList []
+    | [] -> ExprNil
     | v -> List.hd (List.rev v)
 
 let expand_all eval env expr =
+    let to_list clist =
+        let rec impl acc expr =
+            match expr with
+            | ExprCons (e1, e2) -> impl (e1 :: acc) e2
+            | ExprNil -> List.rev acc
+            | _ -> List.rev (expr :: acc)
+        in
+        impl [] clist
+    in
+    let to_clist is_list l =
+        let rec impl acc l =
+            match l with
+            | [] -> acc
+            | hd :: tl -> impl (ExprCons (hd, acc)) tl
+        in
+        let l = List.rev l in
+        let (seed, l) =
+            if is_list then
+                (ExprNil, l)
+            else
+                match l with
+                | e1 :: e2 :: rest -> (ExprCons (e2, e1), rest)
+                | _ -> unreachable ()
+        in
+        impl seed l
+    in
     let rec do_expand eval env expr =
+        (* Check if (m ...) is expandable macro and expand macro if it is. *)
         let (denv, _ ) = env in
         match expr with
-        | ExprList (ExprSymbol name :: args) ->
+        | ExprCons (ExprSymbol name, args) ->
                 (match Table.find denv.fns name with
-                | Some (ExprMacro _) ->
+                | Some (ExprMacro _) when is_list args ->
                         let expr = apply eval env name args in
                         do_expand eval env expr
                 | _ ->
-                        let tl = List.map (do_expand eval env) args in
-                        ExprList (ExprSymbol name :: tl))
+                        let is_list = is_list args in
+                        let elems = to_list args in
+                        let elems = List.map (do_expand eval env) elems in
+                        ExprCons (ExprSymbol name, to_clist is_list elems))
         | _ -> expr
     in
     do_expand eval env expr
