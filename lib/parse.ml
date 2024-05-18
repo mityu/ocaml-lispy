@@ -15,7 +15,10 @@ let is_number s =
             else
                 s
         in
-        String.fold_left (fun acc c -> acc && is_digit c) true s
+        if String.length s == 0 then
+            false
+        else
+            String.fold_left (fun acc c -> acc && is_digit c) true s
 
 let string_of_char = String.make 1
 

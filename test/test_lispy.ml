@@ -35,6 +35,8 @@ let test_parse () =
     check [ExprInt 123] "+123";
     check [ExprInt (-123)] "-123";
     check [ExprSymbol "+-123"] "+-123";
+    check [ExprSymbol "1+"] "1+";
+    check [ExprSymbol "+"] "+";
     check [ExprCons (ExprInt 1, ExprInt 2)] "(1 . 2)";
     check [ExprNil] "()";
     check [ExprNil] "nil";
