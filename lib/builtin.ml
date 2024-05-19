@@ -85,14 +85,12 @@ let f_cdr eval env args =
 let f_cons eval env args =
     let (car, cdr) =
         match args with
-        | ExprCons (car, cdr) -> (car, cdr)
+        | ExprCons (car, ExprCons (cdr, ExprNil)) -> (car, cdr)
         | _ -> unreachable ()
     in
     let car = eval env car in
     let cdr = eval env cdr in
-    match cdr with
-    | ExprCons _ -> ExprCons (car, cdr)
-    | _ -> list_required "CONS" cdr
+    ExprCons (car, cdr)
 
 let f_append eval env args =
     let rec rev_append lhs rhs =

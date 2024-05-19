@@ -108,6 +108,7 @@ let test_eval_expr () =
                 "(setq x 'unknown) (or nil (setq x 'ok) 'abc (setq x 'ng)) x";
     check [ExprInt 3] "(car '(3 5 7))";
     check [listform_of [ExprInt 5; ExprInt 7]] "(cdr '(3 5 7))";
+    check [ExprCons (ExprInt 3, ExprSymbol "XYZ")] "(cons 3 'xyz)";
     ()
 
 let test_eval_macro () =
