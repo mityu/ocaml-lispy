@@ -44,6 +44,8 @@ let test_parse () =
     check [ExprNil] "'nil";
     check [ExprT] "t";
     check [ExprT] "'t";
+    check [ExprSpOp (OpQuasiQuote (listform_of [ExprSpOp (OpUnquote (ExprSymbol "N"))]))] "`(,n)";
+    check [ExprSpOp (OpQuasiQuote (listform_of [ExprSpOp (OpUnquoteSplicing (ExprSymbol "N"))]))] "`(,@n)";
     ()
 
 let test_expr_is_list () =
@@ -109,12 +111,29 @@ let test_eval_expr () =
     check [ExprInt 3] "(car '(3 5 7))";
     check [listform_of [ExprInt 5; ExprInt 7]] "(cdr '(3 5 7))";
     check [ExprCons (ExprInt 3, ExprSymbol "XYZ")] "(cons 3 'xyz)";
+    check [listform_of [ExprInt 1; ExprInt 2; ExprInt 3; ExprInt 4]]
+                "(append '(1 2) '(3 4))";
+    ()
+
+let test_eval_unquote () =
+    let check v src = check ("eval: " ^ src) v (run src) in
+    check [ExprInt 3; listform_of [ExprInt 3; ExprInt 3]] "(setq x 3) `(,x ,x)";
+    check [
+            listform_of [ExprInt 1; ExprInt 2];
+            listform_of [ExprInt 1; ExprInt 2; ExprInt 3; ExprInt 4]
+        ] "(setq x '(1 2)) `(,@x 3 4)";
+    check [
+            listform_of [ExprInt 1; ExprInt 2];
+            listform_of [ExprInt 1; ExprInt 2; ExprInt 1; ExprInt 2]
+        ] "(setq x '(1 2)) `(,@x ,@x)";
     ()
 
 let test_eval_macro () =
     let check v src = check ("eval: " ^ src) v (run src) in
     check [ExprSymbol "M"; ExprSymbol "MACRO-M"] "(defmacro m () ''macro-m) (m)";
     check [ExprSymbol "M"; ExprSymbol "ABC"] "(defmacro m (x) `,x) (m 'abc)";
+    check [ExprSymbol "M"; ExprSymbol "MACRO"] "(defmacro m () 'macro) (macroexpand-1 '(m))";
+    check [ExprSymbol "M"; ExprSymbol "MACRO"] "(defmacro m () 'macro) (macroexpand '(m))";
     ()
 
 let test_eval_scope () =
@@ -170,6 +189,19 @@ let test_eval_bootstrap () =
     check [ExprNil] "(not t)";
     check [ExprInt 0] "(length ())";
     check [ExprInt 3] "(length '(1 2 3))";
+    check [
+            ExprNil;
+            listform_of [ExprInt 3; ExprInt 2; ExprInt 1];
+            ExprNil;
+            listform_of [ExprInt 1; ExprInt 2; ExprInt 3];
+        ] {code|
+            (setq retval ())
+            (setq x '(3 2 1))
+            (while x
+                (setq retval (cons (car x) retval))
+                (setq x (cdr x)))
+            retval
+        |code};
     ()
 
 let () =
@@ -186,8 +218,9 @@ let () =
             ]);
             ("eval", [
                 test_case "value" `Quick test_eval_value;
-                test_case "macro" `Quick test_eval_macro;
                 test_case "expr" `Quick test_eval_expr;
+                test_case "unquote" `Quick test_eval_unquote;
+                test_case "macro" `Quick test_eval_macro;
                 test_case "scope" `Quick test_eval_scope;
                 test_case "bootstrap" `Quick test_eval_bootstrap;
             ]);

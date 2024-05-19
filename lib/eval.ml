@@ -3,7 +3,7 @@ open Expr
 open Table
 
 let lookup_function env symbol =
-    if String.starts_with ~prefix:"#:" symbol then
+    if Builtin.is_builtin_fn_symbol symbol then
         let name = String.sub symbol 2 (String.length symbol - 2) in
         match Builtin.find name with
         | Some _ -> Some (ExprBuiltinFn name)
@@ -20,7 +20,7 @@ let lookup_function env symbol =
 
 let lookup_symbol env symbol =
     let (denv, lenv) = env in
-    if String.starts_with ~prefix:"#:" symbol then
+    if Builtin.is_builtin_fn_symbol symbol then
         lookup_function env symbol
     else if String.starts_with ~prefix:"#'" symbol then
         let symbol = String.sub symbol 2 (String.length symbol - 2) in
@@ -35,13 +35,21 @@ let rec unquote eval env expr =
     match expr with
     | ExprCons (ExprSpOp op, e2) ->
             (match op with
-            | OpUnquote e1 -> let e1 = eval env e1 in ExprCons (e1, e2)
-            | OpUnquoteSplicing e1 ->
+            | OpUnquote e1 ->
+                    (* ,x y -> (cons x y) *)
                     let e1 = eval env e1 in
-                    ExprCons (e1, ExprCons (e2, ExprNil))
+                    let e2 = unquote eval env e2 in
+                    ExprCons (e1, e2)
+            | OpUnquoteSplicing e1 ->
+                    (* ,@x y -> (append x y) *)
+                    let e1 = eval env e1 in
+                    let e2 = unquote eval env e2 in
+                    let e1 = Builtin.ensure_list ",@form" e1 in
+                    let e2 = Builtin.ensure_list ",@form" e2 in
+                    clist_of_list (List.append e1 e2)
             | _ -> expr)
     | ExprCons (e1, e2) ->
-            ExprCons (e1, unquote eval env e2)
+            ExprCons (unquote eval env e1, unquote eval env e2)
     | ExprSpOp op ->
             (match op with
             | OpUnquote expr' -> eval env expr'

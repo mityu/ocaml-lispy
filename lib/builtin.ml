@@ -209,6 +209,11 @@ let (f_macroexpand_1, f_macroexpand) =
         | _ -> expr
     in
     let macroexpand eval env args =
+        let find_macro table expr =
+            match expr with
+            | ExprCons _ -> find_macro table expr
+            | _ -> None
+        in
         let rec do_expand table expr =
             match find_macro table expr with
             | Some (name, args) ->

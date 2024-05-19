@@ -84,9 +84,9 @@ let apply eval env name args =
         | _ -> failwith ("Internal error: macro not found: " ^ name)
     in
     let binds = bind_params params vaparam args in
-    let lvars = ScopedTable.new_scope menv.lvars in
-    let () = List.iter (fun (n, v) -> ScopedTable.set lvars n v) binds in
-    match (List.map (eval (denv, {menv with lvars = lvars})) body) with
+    let menv = {menv with lvars = ScopedTable.new_scope menv.lvars} in
+    let () = List.iter (fun (n, v) -> ScopedTable.set menv.lvars n v) binds in
+    match (List.map (eval (denv, menv)) body) with
     | [] -> ExprNil
     | v -> List.hd (List.rev v)
 
