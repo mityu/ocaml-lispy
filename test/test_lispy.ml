@@ -95,6 +95,10 @@ let test_eval_expr () =
     check [ExprInt 6] "(- 13 2 5)";
     check [ExprInt 7] "(* 7)";
     check [ExprInt 105] "(* 7 3 5)";
+    check [ExprInt 5; ExprSymbol "XYZ"; ExprInt 5]
+                "(setq x 'xyz y 5) x y";
+    check_failure (Failure "SETQ: Odd number of arguments: (X Y Z)")
+                (fun () -> ignore @@ run "(setq x y z)");
     check [ExprT] "(and)";
     check [ExprInt 1] "(and 1)";
     check [ExprSymbol "UNKNOWN"; ExprNil; ExprSymbol "OK"]

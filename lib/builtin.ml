@@ -125,19 +125,26 @@ let f_quote eval env args =
 
 let f_setq eval env args =
     let (denv, lenv) = env in
-    let (symbol, value) =
+    let args = list_of_clist args in
+    let () =
+        if List.length args mod 2 != 0 then
+            failwith ("SETQ: Odd number of arguments: " ^ string_of_expr @@ clist_of_list args)
+    in
+    let rec do_bind retval args =
         match args with
-        | ExprCons (e1, ExprCons (e2, ExprNil)) -> (e1, e2)
+        | [] -> retval
+        | symbol :: value :: tl ->
+                let symbol = ensure_symbol "SETQ" symbol in
+                let value = eval env value in
+                let () =
+                    (match ScopedTable.find lenv.lvars symbol with
+                    | Some _ -> ScopedTable.replace_existing lenv.lvars symbol value
+                    | None -> Table.set denv.vars symbol value)
+                in
+                do_bind value tl
         | _ -> unreachable ()
     in
-    let symbol = ensure_symbol "SETQ" symbol in
-    let value = eval env value in
-    let () =
-        match ScopedTable.find lenv.lvars symbol with
-        | Some _ -> ScopedTable.replace_existing lenv.lvars symbol value
-        | None -> Table.set denv.vars symbol value
-    in
-    value
+    do_bind ExprNil args
 
 let f_progn eval env args =
     let () =
@@ -436,7 +443,7 @@ let fn_table = [
     ("LABELS", (f_labels, Some 1, None));
     ("IF", (f_if, Some 3, Some 3));
     ("PROGN", (f_progn, Some 1, None));
-    ("SETQ", (f_setq, Some 2, Some 2));
+    ("SETQ", (f_setq, Some 2, None));
     ("+", (f_add, Some 1, None));
     ("-", (f_sub, Some 1, None));
     ("*", (f_mul, Some 1, None));
