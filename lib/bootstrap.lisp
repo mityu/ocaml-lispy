@@ -21,3 +21,8 @@
 
 (defun not (e)
   (if e nil t))
+
+(defun caar (l) (car (car l)))
+(defun cadr (l) (car (cdr l)))
+(defun cdar (l) (cdr (car l)))
+(defun cddr (l) (cdr (cdr l)))
