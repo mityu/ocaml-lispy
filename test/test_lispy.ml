@@ -72,6 +72,15 @@ let test_expr_list_of_clist () =
     check [ExprInt 3; ExprInt 5];
     ()
 
+let test_expr_rev_clist () =
+    let check = Alcotest.(check string) in
+    let check v src =
+        let src = List.hd @@ parse src in
+        check ("rev_clist: " ^ v) v (string_of_expr @@ rev_clist src)
+    in
+    check "(1 2 3 C B A)" "(a b c 3 2 1)";
+    ()
+
 let test_eval_value () =
     let check v src = check ("eval: " ^ src) v (run src) in
     check [ExprSymbol "FOO"] "'foo";
@@ -113,6 +122,29 @@ let test_eval_expr () =
     check [ExprCons (ExprInt 3, ExprSymbol "XYZ")] "(cons 3 'xyz)";
     check [listform_of [ExprInt 1; ExprInt 2; ExprInt 3; ExprInt 4]]
                 "(append '(1 2) '(3 4))";
+    check [ExprT] "(eql 'abc 'abc)";
+    check [ExprNil] "(eql ''abc 'abc)";
+    check [ExprNil] "(eql 3 'abc)";
+    check [ExprT] {code|(eql "abc" "abc")|code};
+    check [ExprNil] {code|(eql "abc" "xyz")|code};
+    check [ExprT] "(eql '(1 2 3) '(1 2 3))";
+    check [ExprNil] "(eql '(1 2 . 3) '(1 2 3))";
+    check [ExprT] "(< 1)";
+    check [ExprT] "(< 1 2)";
+    check [ExprT] "(< 1 2 3)";
+    check [ExprNil] "(< 1 3 2)";
+    check [ExprT] "(<= 1)";
+    check [ExprT] "(<= 1 1)";
+    check [ExprT] "(<= 1 2 2 3)";
+    check [ExprNil] "(<= 1 3 3 2)";
+    check [ExprInt 7] "(apply #'+ '(2 5))";
+    check [ExprInt 37] "(apply #'+ 7 9 '(2 5 14))";
+    check [fn_of "F"; fn_of "F"; ExprSymbol "F"; ExprInt 5;] {code|
+                (defun f (x) x)
+                (setq fn #'f)
+                (defmacro f (x) ''macro)
+                (apply fn '(5))
+        |code};
     ()
 
 let test_eval_unquote () =
@@ -202,6 +234,18 @@ let test_eval_bootstrap () =
                 (setq x (cdr x)))
             retval
         |code};
+    check [ExprNil] "(reverse nil)";
+    check [listform_of [
+            ExprSymbol "Z";
+            ExprSymbol "Y";
+            ExprSymbol "X";
+            ExprSymbol "C";
+            ExprSymbol "B";
+            ExprSymbol "A";
+        ]] "(reverse '(a b c x y z))";
+    check [listform_of [ExprSymbol "B"; ExprInt 5]] "(assoc 'b '((a 3) (b 5) (c 7)))";
+    check [listform_of [ExprNil; ExprInt 5]] "(assoc nil '(nil (nil 5) (c 7)))";
+    check [ExprNil] "(assoc 'not-exist '((a 3) (b 5) (c 7)))";
     ()
 
 let () =
@@ -212,6 +256,7 @@ let () =
                 test_case "is_list" `Quick test_expr_is_list;
                 test_case "clist_of_list" `Quick test_expr_clist_of_list;
                 test_case "list_of_clist" `Quick test_expr_list_of_clist;
+                test_case "rev_clist" `Quick test_expr_rev_clist;
             ]);
             ("parse", [
                 test_case "parse" `Quick test_parse;

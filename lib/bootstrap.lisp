@@ -26,3 +26,24 @@
 (defun cadr (l) (car (cdr l)))
 (defun cdar (l) (cdr (car l)))
 (defun cddr (l) (cdr (cdr l)))
+
+(defun reverse (l)
+  (labels ((impl (acc l)
+                 (if l
+                   (impl (cons (car l) acc) (cdr l))
+                   acc)))
+    (impl '() l)))
+
+(defun > (l)
+  (apply #'< (reverse l)))
+(defun >= (l)
+  (apply #'<= (reverse l)))
+
+(defun assoc (k alist)
+  (labels ((searcher (k alist)
+                     (if alist
+                       (if (and (car alist) (eql k (caar alist)))
+                         (car alist)
+                         (searcher k (cdr alist)))
+                       nil)))
+    (searcher k alist)))

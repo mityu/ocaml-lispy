@@ -425,6 +425,79 @@ let f_or eval env args =
     in
     calc args
 
+let f_eql eval env args  =
+    let (lhs, rhs) =
+        match args with
+        | ExprCons (lhs, ExprCons (rhs, ExprNil)) -> (lhs, rhs)
+        | _ -> unreachable ()
+    in
+    let lhs = eval env lhs in
+    let rhs = eval env rhs in
+    if lhs = rhs then
+        ExprT
+    else
+        ExprNil
+
+let lt_common name op eval env args =
+    let args = list_of_clist args in
+    let args = List.map (eval env) args in
+    let args = List.map (ensure_int name) args in
+    let rec fold args =
+        match args with
+        | _ :: [] -> ExprT
+        | e1 :: e2 :: tl ->
+                if op e1 e2 then
+                    fold (e2 :: tl)
+                else
+                    ExprNil
+        | _ -> unreachable ()
+    in
+    fold args
+
+let f_lt eval env args = lt_common "<" ( < ) eval env args
+let f_lte eval env args = lt_common "<=" ( <= ) eval env args
+
+let f_apply eval env args =
+    let construct_args args =
+        let args = List.rev args in
+        let (l, rest) =
+            match args with
+            | l :: rest -> (l, rest)
+            | _ -> unreachable ()
+        in
+        let () = if Bool.not @@ is_list l then list_required "APPLY" l
+        in
+        let rec construct acc rest =
+            match rest with
+            | [] -> acc
+            | hd :: tl -> construct (ExprCons (hd, acc)) tl
+        in
+        construct l rest
+    in
+    let args = List.map (eval env) (list_of_clist args) in
+    let (fn, args) =
+        match args with
+        | fn :: args -> (fn, args)
+        | _ -> unreachable ()
+    in
+    let (fn, env') =
+        match fn with
+        | ExprBuiltinFn fn -> (ExprSymbol ("#:" ^ fn), env)
+        | ExprFn fn ->
+                (* Make "..." must points to the desired function *)
+                let name = f_gensym eval env ExprNil in
+                let name = ensure_symbol "APPEND: unreachable:" name in
+                let (denv, lenv) = env in
+                let lenv' = {lenv with lfns = ScopedTable.new_scope lenv.lfns} in
+                let () = ScopedTable.set lenv'.lfns name (ExprFn fn) in
+                (ExprSymbol name, (denv, lenv'))
+        | _ ->
+                let s = string_of_expr fn in
+                failwith ("APPLY: a function is required for the first argument: " ^ s)
+    in
+    let args = construct_args args in
+    eval env' (ExprCons (fn, args))
+
 
 let fn_table = [
     ("GENSYM", (f_gensym, Some 0, Some 0));
@@ -452,6 +525,10 @@ let fn_table = [
     ("*", (f_mul, Some 1, None));
     ("AND", (f_and, None, None));
     ("OR", (f_or, None, None));
+    ("EQL", (f_eql, Some 2, Some 2));
+    ("<", (f_lt, Some 1, None));
+    ("<=", (f_lte, Some 1, None));
+    ("APPLY", (f_apply, Some 2, None));
 ]
 
 let find name = List.assoc_opt name fn_table
