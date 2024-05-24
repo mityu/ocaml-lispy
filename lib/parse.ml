@@ -89,6 +89,8 @@ let parse src =
         | Some '`' -> readmacro_backquote i
         | Some ',' -> readmacro_unquote i quasiquote
         | Some ';' -> let i' = skip_until i (fun c -> c = '\n') in parse_exp i' quasiquote
+        | Some ':' -> parse_keyword i
+        | Some '#' -> parse_hashed_symbol i
         | _ ->
                 let r = parse_symbol i in
                 (match r with
@@ -171,9 +173,7 @@ let parse src =
                         in
                         (i, Some (ExprSymbol symbol))
         in
-        match read_char i with
-        | _, Some '#' -> parse_hashed_symbol i
-        | _ -> do_parse "" i false false
+        do_parse "" i false false
     and parse_hashed_symbol i =
         let i = ensure_char i '#' in
         let unwrap_bar symbol =
@@ -206,6 +206,20 @@ let parse src =
                 | _ -> (i', None))
         | Some c -> failwith ("Invalid character after #: " ^ string_of_char c)
         | _ -> failwith "No character follows after #"
+    and parse_keyword i =
+        let i = ensure_char i ':' in
+        let (i', symbol) = parse_symbol i in
+        match symbol with
+        | None -> (i', Some (ExprKeyword "||"))
+        | Some (ExprSymbol symbol) ->
+                let symbol =
+                    if String.get symbol 0 = '#' then
+                        "|" ^ symbol ^ "|"
+                    else
+                        symbol
+                in
+                (i', Some (ExprKeyword symbol))
+        | _ -> unreachable ()
     and readmacro_quote i =
         let i = ensure_char i '\'' in
         let i = skip_white i in

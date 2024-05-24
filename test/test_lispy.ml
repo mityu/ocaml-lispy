@@ -46,6 +46,9 @@ let test_parse () =
     check [ExprT] "'t";
     check [ExprSpOp (OpQuasiQuote (listform_of [ExprSpOp (OpUnquote (ExprSymbol "N"))]))] "`(,n)";
     check [ExprSpOp (OpQuasiQuote (listform_of [ExprSpOp (OpUnquoteSplicing (ExprSymbol "N"))]))] "`(,@n)";
+    check [ExprKeyword "||"] ":";
+    check [ExprKeyword "TEST"] ":test";
+    check [ExprKeyword "|#ABC|"] ":#abc";
     ()
 
 let test_expr_is_list () =

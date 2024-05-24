@@ -3,6 +3,7 @@ open Err
 
 type expr =
     | ExprSymbol of string
+    | ExprKeyword of string
     | ExprNil
     | ExprT
     | ExprCons of expr * expr
@@ -82,6 +83,7 @@ let rec string_of_expr e =
     in
     match e with
     | ExprSymbol s -> s
+    | ExprKeyword s -> ":" ^ s
     | ExprNil -> "NIL"
     | ExprT -> "T"
     | ExprCons (e1, e2) -> string_of_cons (e1, e2)
