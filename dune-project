@@ -7,13 +7,13 @@
 (source
  (github mityu/ocaml-lispy))
 
-(authors "Author Name")
+(authors "mityu")
 
-(maintainers "Maintainer Name")
+(maintainers "mityu")
 
-(license LICENSE)
+(license "Tbe MIT License")
 
-(documentation https://url/to/documentation)
+(documentation https://github.com/mityu/ocaml-lispy)
 
 (package
  (name lispy)
@@ -21,6 +21,6 @@
  (description "A toy interpreter of LISP-like language written in OCaml.")
  (depends ocaml dune)
  (tags
-  (topics "to describe" your project)))
+  ("LISP-interpreter")))
 
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/dune-files.html#dune-project

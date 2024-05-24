@@ -2,12 +2,12 @@
 opam-version: "2.0"
 synopsis: "A toy LISP-like language interpreter."
 description: "A toy interpreter of LISP-like language written in OCaml."
-maintainer: ["Maintainer Name"]
-authors: ["Author Name"]
-license: "LICENSE"
-tags: ["topics" "to describe" "your" "project"]
+maintainer: ["mityu"]
+authors: ["mityu"]
+license: "Tbe MIT License"
+tags: ["LISP-interpreter"]
 homepage: "https://github.com/mityu/ocaml-lispy"
-doc: "https://url/to/documentation"
+doc: "https://github.com/mityu/ocaml-lispy"
 bug-reports: "https://github.com/mityu/ocaml-lispy/issues"
 depends: [
   "ocaml"
