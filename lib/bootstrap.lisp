@@ -47,3 +47,21 @@
                          (searcher k (cdr alist)))
                        nil)))
     (searcher k alist)))
+
+(defun max (&rest l)
+  (labels ((impl (acc l)
+                 (if l
+                   (if (> (car l) acc)
+                     (impl (car l) (cdr l))
+                     (impl acc (cdr l)))
+                   acc)))
+    (impl (car l) (cdr l))))
+
+(defun min (&rest l)
+  (labels ((impl (acc l)
+                 (if l
+                   (if (< (car l) acc)
+                     (impl (car l) (cdr l))
+                     (impl acc (cdr l)))
+                   acc)))
+    (impl (car l) (cdr l))))
