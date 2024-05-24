@@ -34,9 +34,9 @@
                    acc)))
     (impl '() l)))
 
-(defun > (l)
+(defun > (&rest l)
   (apply #'< (reverse l)))
-(defun >= (l)
+(defun >= (&rest l)
   (apply #'<= (reverse l)))
 
 (defun assoc (k alist)

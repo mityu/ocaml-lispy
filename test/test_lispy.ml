@@ -249,6 +249,10 @@ let test_eval_bootstrap () =
     check [listform_of [ExprSymbol "B"; ExprInt 5]] "(assoc 'b '((a 3) (b 5) (c 7)))";
     check [listform_of [ExprNil; ExprInt 5]] "(assoc nil '(nil (nil 5) (c 7)))";
     check [ExprNil] "(assoc 'not-exist '((a 3) (b 5) (c 7)))";
+    check [ExprT] "(> 3 2 1)";
+    check [ExprNil] "(> 2 3 1)";
+    check [ExprT] "(>= 3 2 2 1)";
+    check [ExprNil] "(>= 2 3 3 1)";
     ()
 
 let () =
