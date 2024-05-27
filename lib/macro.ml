@@ -1,6 +1,5 @@
 open Err
 open Expr
-open Table
 
 let check_unique l =
     let rec checker checked l =
@@ -55,8 +54,7 @@ let define env name expr =
             failwith (name ^ ": duplicate symbol appears in parameters")
     in
     let params = parse_params params in
-    let (denv, lenv) = env in
-    Table.set denv.fns name (ExprMacro (name, lenv, params, list_of_clist body))
+    Env.set_fn env name (ExprMacro (name, env, params, list_of_clist body))
 
 let apply eval env name args =
     let bind_params params vaparam args =
@@ -77,16 +75,15 @@ let apply eval env name args =
         in
         bind [] params vaparam args
     in
-    let (denv, _) = env in
     let (_, menv, (params, vaparam), body) =
-        match Table.find denv.fns name with
+        match Env.find_fn env name with
         | Some (ExprMacro m) -> m
         | _ -> failwith ("Internal error: macro not found: " ^ name)
     in
     let binds = bind_params params vaparam args in
-    let menv = {menv with lvars = ScopedTable.new_scope menv.lvars} in
-    let () = List.iter (fun (n, v) -> ScopedTable.set menv.lvars n v) binds in
-    match (List.map (eval (denv, menv)) body) with
+    let menv = Env.new_scope menv in
+    let () = List.iter (fun (n, v) -> Env.set_var menv n v) binds in
+    match (List.map (eval menv) body) with
     | [] -> ExprNil
     | v -> List.hd (List.rev v)
 
@@ -119,10 +116,9 @@ let expand_all eval env expr =
     in
     let rec do_expand eval env expr =
         (* Check if (m ...) is expandable macro and expand macro if it is. *)
-        let (denv, _) = env in
         match expr with
         | ExprCons (ExprSymbol name, args) ->
-                (match Table.find denv.fns name with
+                (match Env.find_fn env name with
                 | Some (ExprMacro _) when is_list args ->
                         let expr = apply eval env name args in
                         do_expand eval env expr

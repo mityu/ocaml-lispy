@@ -23,7 +23,7 @@ let rec repl env =
 
 let repl () =
     let () = Printexc.record_backtrace true in
-    let env = (Expr.empty_denv (), Expr.empty_lenv ()) in
+    let env = Env.empty () in
     let () = ignore (Eval.eval_all env (Parse.parse (Bootstrap.get_src ()))) in
     repl env
 

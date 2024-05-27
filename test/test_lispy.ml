@@ -15,14 +15,14 @@ let expr_t =
     Alcotest.testable pp compare
 
 let run s =
-    let env = (Lispy.Expr.empty_denv (), Lispy.Expr.empty_lenv ()) in
+    let env = Lispy.Env.empty () in
     eval_all env (parse s)
 
 let check = Alcotest.(check (list expr_t))
 let check_failure = Alcotest.check_raises "failwith call"
 
 let listform_of = clist_of_list
-let fn_of name = ExprFn (name, empty_lenv (), ([], None), [])
+let fn_of name = ExprFn (name, Lispy.Env.empty (), ([], None), [])
 
 let test_parse () =
     let check v src = check ("parse: " ^ src) v (parse src) in
@@ -212,7 +212,7 @@ let test_eval_scope () =
 
 let test_eval_bootstrap () =
     let run s =
-        let env = (Lispy.Expr.empty_denv (), Lispy.Expr.empty_lenv ()) in
+        let env = Lispy.Env.empty () in
         let () = ignore @@ eval_all env (parse @@ Lispy.Bootstrap.get_src ()) in
         eval_all env (parse s)
     in

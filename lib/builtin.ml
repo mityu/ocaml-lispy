@@ -1,5 +1,4 @@
 open Err
-open Table
 open Expr
 
 let specific_required kind op e =
@@ -122,7 +121,6 @@ let f_quote eval env args =
     eval env (ExprSpOp (OpQuote expr))
 
 let f_setq eval env args =
-    let (denv, lenv) = env in
     let args = list_of_clist args in
     let () =
         if List.length args mod 2 != 0 then
@@ -135,9 +133,9 @@ let f_setq eval env args =
                 let symbol = ensure_symbol "SETQ" symbol in
                 let value = eval env value in
                 let () =
-                    (match ScopedTable.find lenv.lvars symbol with
-                    | Some _ -> ScopedTable.replace_existing lenv.lvars symbol value
-                    | None -> Table.set denv.vars symbol value)
+                    (match Env.find_var env symbol with
+                    | Some _ -> Env.replace_existing_var env symbol value
+                    | None -> Env.set_var env symbol value)
                 in
                 do_bind value tl
         | _ -> unreachable ()
@@ -188,7 +186,7 @@ let (f_macroexpand_1, f_macroexpand) =
         in
         eval env expr
     in
-    let find_macro table expr =
+    let find_macro env expr =
         let (name, args) =
             match expr with
             | ExprCons (e1, e2) -> (e1, e2)
@@ -196,34 +194,32 @@ let (f_macroexpand_1, f_macroexpand) =
         in
         match name with
         | ExprSymbol name ->
-                (match Table.find table name with
+                (match Env.find_fn env name with
                 | Some (ExprMacro _) -> Some (name, args)
                 | _ -> None)
         | _ -> None
     in
     let macroexpand_1 eval env args =
         let expr = eval_args eval env args in
-        let (denv, _) = env in
-        match find_macro denv.fns expr with
+        match find_macro env expr with
         | Some (name, args) -> Macro.apply eval env name args
         | _ -> expr
     in
     let macroexpand eval env args =
-        let find_macro table expr =
+        let find_macro env expr =
             match expr with
-            | ExprCons _ -> find_macro table expr
+            | ExprCons _ -> find_macro env expr
             | _ -> None
         in
-        let rec do_expand table expr =
-            match find_macro table expr with
+        let rec do_expand env expr =
+            match find_macro env expr with
             | Some (name, args) ->
                     let expr = Macro.apply eval env name args in
-                    do_expand table expr
+                    do_expand env expr
             | _ -> expr
         in
         let expr = eval_args eval env args in
-        let (denv, _) = env in
-        do_expand denv.fns expr
+        do_expand env expr
     in
     (macroexpand_1, macroexpand)
 
@@ -264,9 +260,8 @@ let gen_lambda_id =
 
 let f_lambda _ env args =
     let (params, body) = parse_function_definition "LAMBDA" args in
-    let (_, lenv) = env in
     let name = "LAMBDA-" ^ string_of_int @@ gen_lambda_id () in
-    ExprFn (name, lenv, params, body)
+    ExprFn (name, env, params, body)
 
 let f_defun _ env args =
     let (name, fndef) =
@@ -276,9 +271,8 @@ let f_defun _ env args =
     in
     let name = ensure_symbol "DEFUN" name in
     let (params, body) = parse_function_definition ("DEFUN: " ^ name) fndef in
-    let (denv, lenv) = env in
-    let fn = ExprFn (name, lenv, params, body) in
-    let () = Table.set denv.fns name fn in
+    let fn = ExprFn (name, env, params, body) in
+    let () = Env.set_fn env name fn in
     fn
 
 let let_common recdef eval env args =
@@ -302,25 +296,23 @@ let let_common recdef eval env args =
         in
         List.map ensure binds
     in
-    let (denv, lenv) = env in
-    let lenv =
+    let env =
         if recdef then
             let do_bind eval env (name, value) =
                 let value = eval env value in
-                let (_, lenv) = env in
-                ScopedTable.set lenv.lvars name value
+                Env.set_var env name value
             in
-            let lenv = {lenv with lvars = ScopedTable.new_scope lenv.lvars} in
-            let () = List.iter (do_bind eval (denv, lenv)) binds in
-            lenv
+            let env = Env.new_scope env in
+            let () = List.iter (do_bind eval env) binds in
+            env
         else
             let binds = List.map (fun (n, e) -> (n, eval env e)) binds in
-            let lenv = {lenv with lvars = ScopedTable.new_scope lenv.lvars} in
-            let () = List.iter (fun (n, v) -> ScopedTable.set lenv.lvars n v) binds
+            let env = Env.new_scope env in
+            let () = List.iter (fun (n, v) -> Env.set_var env n v) binds
             in
-            lenv
+            env
     in
-    eval_body eval (denv, lenv) (list_of_clist body)
+    eval_body eval env (list_of_clist body)
 
 let f_let eval env args = let_common false eval env args
 let f_letstar eval env args = let_common true eval env args
@@ -335,7 +327,8 @@ let flet_common recdef eval env args =
     in
     let binds = ensure_list op binds in
     let binds =
-        let err_invalid_bind expr = failwith (op ^ ": List with 2 to 3 elements required: " ^ string_of_expr expr)
+        let err_invalid_bind expr =
+            failwith (op ^ ": List with 2 to 3 elements required: " ^ string_of_expr expr)
         in
         let ensure e =
             match e with
@@ -350,21 +343,17 @@ let flet_common recdef eval env args =
         in
         List.map ensure binds
     in
-    let (denv, lenv) = env in
-    let lenv =
-        let lenv' = {lenv with lfns = ScopedTable.new_scope lenv.lfns}  in
-        let do_bind lenv (symbol, params, expr) =
-            let fn = ExprFn (symbol, lenv, params, expr) in
-            ScopedTable.set lenv'.lfns symbol fn
+    let env' =
+        let env' = Env.new_scope env in
+        let do_bind env' (symbol, params, expr) =
+            let fnenv = if recdef then env' else env in
+            let fn = ExprFn (symbol, fnenv, params, expr) in
+            Env.set_fn env' symbol fn
         in
-        if recdef then
-            let () = List.iter (do_bind lenv') binds in
-            lenv'
-        else
-            let () = List.iter (do_bind lenv) binds in
-            lenv'
+        let () = List.iter (do_bind env') binds in
+        env'
     in
-    eval_body eval (denv, lenv) (list_of_clist body)
+    eval_body eval env' (list_of_clist body)
 
 let f_flet eval env args = flet_common false eval env args
 let f_labels eval env args = flet_common true eval env args
@@ -487,10 +476,9 @@ let f_apply eval env args =
                 (* Make "..." must points to the desired function *)
                 let name = f_gensym eval env ExprNil in
                 let name = ensure_symbol "APPEND: unreachable:" name in
-                let (denv, lenv) = env in
-                let lenv' = {lenv with lfns = ScopedTable.new_scope lenv.lfns} in
-                let () = ScopedTable.set lenv'.lfns name (ExprFn fn) in
-                (ExprSymbol name, (denv, lenv'))
+                let env' = Env.new_scope env in
+                let () = Env.set_fn env' name (ExprFn fn) in
+                (ExprSymbol name, env')
         | _ ->
                 let s = string_of_expr fn in
                 failwith ("APPLY: a function is required for the first argument: " ^ s)

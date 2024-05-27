@@ -1,35 +1,30 @@
 open Err
 open Expr
-open Table
 
 let lookup_function env symbol =
     if Builtin.is_builtin_fn_symbol symbol then
+        (* Find function from builtin functions *)
         let name = String.sub symbol 2 (String.length symbol - 2) in
         match Builtin.find name with
         | Some _ -> Some (ExprBuiltinFn name)
         | None -> None
     else
-        let (denv, lenv) = env in
-        let lfn = ScopedTable.find lenv.lfns symbol in
-        let fn = Table.find denv.fns symbol in
-        match lfn, fn, Builtin.find symbol with
-        | Some (ExprFn fn), _, _ -> Some (ExprFn fn)
-        | None, Some (ExprFn fn), _ -> Some (ExprFn fn)
-        | None, None, Some _ -> Some (ExprBuiltinFn symbol)
+        (* Find function from user defined functions *)
+        let userfn = Env.find_fn env symbol in
+        let systemfn = Builtin.find symbol in
+        match userfn, systemfn with
+        | Some (ExprFn fn), _ -> Some (ExprFn fn)
+        | None, Some _ -> Some (ExprBuiltinFn symbol)
         | _ -> None
 
 let lookup_symbol env symbol =
-    let (denv, lenv) = env in
     if Builtin.is_builtin_fn_symbol symbol then
         lookup_function env symbol
     else if String.starts_with ~prefix:"#'" symbol then
         let symbol = String.sub symbol 2 (String.length symbol - 2) in
         lookup_function env symbol
     else
-        (* lexical scope has much search priority than dynamic scope. *)
-        match ScopedTable.find lenv.lvars symbol with
-        | None -> Table.find denv.vars symbol
-        | v -> v
+        Env.find_var env symbol
 
 let rec unquote eval env expr =
     match expr with
@@ -120,13 +115,13 @@ and apply_builtin_function env name args =
     in
     fn eval env args
 and apply_user_function env fn args =
-    let rec bind_args lenv params vaparam args =
+    let rec bind_args env params vaparam args =
         (* Bind function arguments in environment in function closure *)
         match params, vaparam, args with
         | hdp :: tlp, _, ExprCons (hda, tla) ->
-                let () = ScopedTable.set lenv.lvars hdp hda in
-                bind_args lenv tlp vaparam tla
-        | [], Some vaparam, rest -> ScopedTable.set lenv.lvars vaparam rest
+                let () = Env.set_var env hdp hda in
+                bind_args env tlp vaparam tla
+        | [], Some vaparam, rest -> Env.set_var env vaparam rest
         | [], None, ExprNil -> ()  (* Already bound all the values.  Do nothing. *)
         | _ ->
                 (*
@@ -156,16 +151,15 @@ and apply_user_function env fn args =
         in
         eval_args ExprNil env args
     in
-    let fnenv = {fnenv with lvars = ScopedTable.new_scope fnenv.lvars} in
+    let fnenv = Env.new_scope fnenv in
     let () = bind_args fnenv params vaparam args in
-    let (denv, _) = env in
     let rec do_eval retval env body =
         match body with
         | [] -> retval
         | hd :: tl -> do_eval (eval env hd) env tl
     in
     (* Evaluate the function body under the environment in the function closure *)
-    do_eval ExprNil (denv, fnenv) body
+    do_eval ExprNil fnenv body
 
 
 let eval_all env exprs =
