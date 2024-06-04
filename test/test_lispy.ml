@@ -148,6 +148,7 @@ let test_eval_expr () =
                 (defmacro f (x) ''macro)
                 (apply fn '(5))
         |code};
+    check [ExprInt 10] "((lambda (x) (+ x 3)) 7)";
     ()
 
 let test_eval_unquote () =

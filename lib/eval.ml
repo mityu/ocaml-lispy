@@ -69,26 +69,28 @@ let rec eval env expr =
             | OpQuasiQuote expr -> unquote eval env expr
             | _ -> unreachable ())
     | expr -> expr
-and apply_function env symbol args =
+and apply_function env car args =
     let () =
         if Bool.not @@ is_list args then
-            let src = string_of_expr (ExprCons (symbol, args)) in
+            let src = string_of_expr (ExprCons (car, args)) in
             failwith ("List required for function application: " ^ src)
     in
     let err_invalid_app () =
-        let src = string_of_expr (ExprCons (symbol, args)) in
+        let src = string_of_expr (ExprCons (car, args)) in
         failwith ("Invalid function application: " ^ src)
     in
-    let symbol =
-        match symbol with
-        | ExprSymbol s -> s
+    let fn =
+        match car with
+        | ExprSymbol s ->
+                (match lookup_function env s with
+                | None -> failwith ("No such symbol: " ^ s)
+                | Some v -> v)
+        | ExprCons _ -> eval env car
         | _ -> err_invalid_app ()
     in
-    let fn = lookup_function env symbol in
     match fn with
-    | None -> failwith ("No such symbol: " ^ symbol)
-    | Some (ExprBuiltinFn name) -> apply_builtin_function env name args
-    | Some (ExprFn fn) -> apply_user_function env fn args
+    | ExprBuiltinFn name -> apply_builtin_function env name args
+    | ExprFn fn -> apply_user_function env fn args
     | _ -> err_invalid_app ()
 and apply_builtin_function env name args =
     let (fn, nargs_min, nargs_max) =
