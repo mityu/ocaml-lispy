@@ -94,12 +94,13 @@ let f_cons eval env args =
 let f_append eval env args =
     let rec rev_append lhs rhs =
         match lhs with
-        | ExprCons (e1, ExprNil) -> ExprCons (e1, rhs)
+        | ExprNil -> rhs
         | ExprCons (e1, e2) -> rev_append e2 (ExprCons (e1, rhs))
         | _ -> unreachable ()
     in
     let ensure_evaluated_in_list env exp =
         match eval env exp with
+        | ExprNil -> ExprNil
         | ExprCons (e1, e2) -> ExprCons (e1, e2)
         | _ -> list_required "APPEND" exp
     in

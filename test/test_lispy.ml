@@ -125,6 +125,9 @@ let test_eval_expr () =
     check [ExprCons (ExprInt 3, ExprSymbol "XYZ")] "(cons 3 'xyz)";
     check [listform_of [ExprInt 1; ExprInt 2; ExprInt 3; ExprInt 4]]
                 "(append '(1 2) '(3 4))";
+    check [ExprNil] "(append nil nil)";
+    check [ExprCons (ExprInt 3, ExprNil)] "(append nil '(3))";
+    check [ExprCons (ExprInt 5, ExprNil)] "(append '(5) nil)";
     check [ExprT] "(eql 'abc 'abc)";
     check [ExprNil] "(eql ''abc 'abc)";
     check [ExprNil] "(eql 3 'abc)";
