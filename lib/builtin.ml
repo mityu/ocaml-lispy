@@ -1,6 +1,15 @@
 open Err
 open Expr
 
+let unique_id_generator () =
+    let id = ref 0 in
+    let gen () =
+        let v = !id in
+        let () = id := v + 1 in
+        v
+    in
+    gen
+
 let specific_required kind op e =
     let s = string_of_expr e in
     let m = kind ^ " required: " ^ s in
@@ -48,14 +57,14 @@ let eval_body eval env body =
     in
     do_eval ExprNil eval env body
 
-let f_gensym =
-    let id = ref 0 in
-    let gensym _ _ _ =
-        let v = !id in
-        let () = id := v + 1 in
-        ExprSymbol ("#:GSYM:" ^ string_of_int v)
+let gensym =
+    let genid = unique_id_generator () in
+    let gensym () =
+        "#:GSYM:" ^ string_of_int (genid ())
     in
     gensym
+
+let f_gensym _ _ _ = ExprSymbol (gensym ())
 
 let f_list eval env args =
     let args = List.map (eval env) (list_of_clist args) in
@@ -250,19 +259,14 @@ let parse_function_definition op defs =
     let params = parse_fn_params params in
     (params, body)
 
-let gen_lambda_id =
-    let id = ref 0 in
-    let gen () =
-        let v = !id in
-        let () = id := v + 1 in
-        v
+let f_lambda =
+    let gen_lambda_id = unique_id_generator () in
+    let f_lambda _ env args =
+        let (params, body) = parse_function_definition "LAMBDA" args in
+        let name = "LAMBDA-" ^ string_of_int @@ gen_lambda_id () in
+        ExprFn (name, env, params, body)
     in
-    gen
-
-let f_lambda _ env args =
-    let (params, body) = parse_function_definition "LAMBDA" args in
-    let name = "LAMBDA-" ^ string_of_int @@ gen_lambda_id () in
-    ExprFn (name, env, params, body)
+    f_lambda
 
 let f_defun _ env args =
     let (name, fndef) =
@@ -475,8 +479,7 @@ let f_apply eval env args =
         | ExprBuiltinFn fn -> (ExprSymbol ("#:" ^ fn), env)
         | ExprFn fn ->
                 (* Make "..." must points to the desired function *)
-                let name = f_gensym eval env ExprNil in
-                let name = ensure_symbol "APPEND: unreachable:" name in
+                let name = gensym () in
                 let env' = Env.new_scope env in
                 let () = Env.set_fn env' name (ExprFn fn) in
                 (ExprSymbol name, env')
