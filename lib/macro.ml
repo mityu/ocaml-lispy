@@ -56,7 +56,7 @@ let define env name expr =
     let params = parse_params params in
     Env.set_fn env name (ExprMacro (name, env, params, list_of_clist body))
 
-let apply eval env name args =
+let apply eval env name args cont =
     let bind_params params vaparam args =
         let rec bind acc params vaparam args =
             match params, args with
@@ -83,11 +83,14 @@ let apply eval env name args =
     let binds = bind_params params vaparam args in
     let menv = Env.new_scope menv in
     let () = List.iter (fun (n, v) -> Env.set_var menv n v) binds in
-    match (List.map (eval menv) body) with
-    | [] -> ExprNil
-    | v -> List.hd (List.rev v)
+    let rec eval_body retval body =
+        match body with
+        | [] -> cont retval
+        | hd :: tl -> eval menv hd (fun hd -> eval_body hd tl)
+    in
+    eval_body ExprNil body
 
-let expand_all eval env expr =
+let expand_all eval env expr cont =
     let to_list clist =
         let rec impl acc expr =
             match expr with
@@ -114,19 +117,28 @@ let expand_all eval env expr =
         in
         impl seed l
     in
-    let rec do_expand eval env expr =
+    let rec do_expand eval env expr cont =
         (* Check if (m ...) is expandable macro and expand macro if it is. *)
         match expr with
         | ExprCons (ExprSymbol name, args) ->
                 (match Env.find_fn env name with
                 | Some (ExprMacro _) when is_list args ->
-                        let expr = apply eval env name args in
-                        do_expand eval env expr
+                        apply eval env name args (fun expr ->
+                            do_expand eval env expr cont)
                 | _ ->
                         let is_list = is_list args in
                         let elems = to_list args in
-                        let elems = List.map (do_expand eval env) elems in
-                        ExprCons (ExprSymbol name, to_clist is_list elems))
-        | _ -> expr
+                        expand_elems eval env elems (fun elems ->
+                            cont (ExprCons (ExprSymbol name, to_clist is_list elems))))
+        | _ -> cont expr
+    and expand_elems eval env elems cont =
+        let rec impl acc eval env elems cont =
+            match elems with
+            | [] -> cont @@ List.rev acc
+            | hd :: tl ->
+                    do_expand eval env hd (fun hd ->
+                        impl (hd :: acc) eval env tl cont)
+        in
+        impl [] eval env elems cont
     in
-    do_expand eval env expr
+    do_expand eval env expr cont

@@ -10,6 +10,8 @@ type expr =
     | ExprString of string
     | ExprFn of fn
     | ExprBuiltinFn of string (* Holds function name *)
+    | ExprSpecialForm of string (* Holds special form name *)
+    | ExprContinuation of (expr -> expr)
     | ExprMacro of fn
     | ExprSpOp of spop
 and spop =
@@ -79,6 +81,8 @@ let rec string_of_expr e =
             let (name, _, _, _) = fn in
             Printf.sprintf "#<FUNCTION:%s>" name
     | ExprBuiltinFn name -> Printf.sprintf "#<SYSTEM-FUNCTION:%s>" name
+    | ExprSpecialForm name -> Printf.sprintf "#<SPECIAL-FORM:%s>" name
+    | ExprContinuation _ -> "continuation"
     | ExprMacro macro ->
             let (name, _, _, _) = macro in
             Printf.sprintf "#<MACRO:%s>" name

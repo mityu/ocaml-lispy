@@ -49,13 +49,13 @@ let is_builtin_fn_symbol s =
 
 let list_duplicate_items _ = todo ()
 
-let eval_body eval env body =
-    let rec do_eval retval eval env body =
+let eval_body eval env body cont =
+    let rec do_eval retval eval env body cont =
         match body with
-        | [] -> retval
-        | hd :: tl -> do_eval (eval env hd) eval env tl
+        | [] -> cont retval
+        | hd :: tl -> eval env hd (fun hd -> do_eval hd eval env tl cont)
     in
-    do_eval ExprNil eval env body
+    do_eval ExprNil eval env body cont
 
 let gensym =
     let genid = unique_id_generator () in
@@ -64,138 +64,152 @@ let gensym =
     in
     gensym
 
-let f_gensym _ _ _ = ExprSymbol (gensym ())
+(* Builtin functions *)
+let f_gensym _ _ _ cont = cont (ExprSymbol (gensym ()))
 
-let f_list eval env args =
-    let args = List.map (eval env) (list_of_clist args) in
-    clist_of_list args
+let f_list _ _ args cont = cont @@ clist_of_list args
 
-let f_car eval env args =
+let f_car _ _ args cont =
     let arg =
         match args with
-        | ExprCons (e, ExprNil) -> e
+        | [e] -> e
         | _ -> unreachable ()
     in
-    match eval env arg with
-    | ExprCons (car, _) -> car
+    match arg with
+    | ExprCons (car, _) -> cont car
     | _ -> list_required "CAR" arg
 
-let f_cdr eval env args =
+let f_cdr _ _ args cont =
     let arg =
         match args with
-        | ExprCons (e, ExprNil) -> e
+        | [e] -> e
         | _ -> unreachable ()
     in
-    match eval env arg with
-    | ExprCons (_, cdr) -> cdr
+    match arg with
+    | ExprCons (_, cdr) -> cont cdr
     | _ -> list_required "CDR" arg
 
-let f_cons eval env args =
+let f_cons _ _ args cont =
     let (car, cdr) =
         match args with
-        | ExprCons (car, ExprCons (cdr, ExprNil)) -> (car, cdr)
+        | car :: cdr :: [] -> (car, cdr)
         | _ -> unreachable ()
     in
-    let car = eval env car in
-    let cdr = eval env cdr in
-    ExprCons (car, cdr)
+    cont (ExprCons (car, cdr))
 
-let f_append eval env args =
+let f_append _ _ args cont =
+    let ensure_list v = if is_list v then () else list_required "APPEND" v in
     let rec rev_append lhs rhs =
         match lhs with
         | ExprNil -> rhs
         | ExprCons (e1, e2) -> rev_append e2 (ExprCons (e1, rhs))
         | _ -> unreachable ()
     in
-    let ensure_evaluated_in_list env exp =
-        match eval env exp with
-        | ExprNil -> ExprNil
-        | ExprCons (e1, e2) -> ExprCons (e1, e2)
-        | _ -> list_required "APPEND" exp
-    in
     let (lhs, rhs) =
-        match list_of_clist args with
+        match args with
         | lhs :: rhs :: [] -> (lhs, rhs)
         | _ -> unreachable ()
     in
-    let lhs = ensure_evaluated_in_list env lhs in
-    let rhs = ensure_evaluated_in_list env rhs in
-    rev_append (rev_clist lhs) rhs
+    let () = ensure_list lhs in
+    let () = ensure_list rhs in
+    cont @@ rev_append (rev_clist lhs) rhs
 
-let f_quote eval env args =
+let f_add _ _ args cont =
+    let args = List.map (ensure_int "ADD") args in
+    let v = List.fold_left ( + ) 0 args in
+    cont (ExprInt v)
+
+let f_sub _ _ args cont =
+    let args = List.map (ensure_int "SUB") args in
+    let (seed, args) =
+        match args with
+        | v :: [] -> (0, [v])
+        | hd :: tl -> (hd, tl)
+        | [] -> unreachable ()
+    in
+    let v = List.fold_left ( - ) seed args in
+    cont (ExprInt v)
+
+let f_mul _ _ args cont =
+    let args = List.map (ensure_int "MUL") args in
+    let v = List.fold_left ( * ) 1 args in
+    cont (ExprInt v)
+
+let f_eql _ _ args cont =
+    let (lhs, rhs) =
+        match args with
+        | lhs :: rhs :: [] -> (lhs, rhs)
+        | _ -> unreachable ()
+    in
+    if lhs = rhs then
+        cont ExprT
+    else
+        cont ExprNil
+
+let lt_common name op args cont =
+    let args = List.map (ensure_int name) args in
+    let rec fold args =
+        match args with
+        | _ :: [] -> ExprT
+        | e1 :: e2 :: tl ->
+                if op e1 e2 then
+                    fold (e2 :: tl)
+                else
+                    ExprNil
+        | _ -> unreachable ()
+    in
+    cont (fold args)
+
+let f_lt _ _ args cont = lt_common "<" ( < ) args cont
+let f_lte _ _ args cont = lt_common "<=" ( <= ) args cont
+
+let f_eval eval env args cont =
     let expr =
         match args with
-        | ExprCons (e, ExprNil) -> e
+        | e :: [] -> e
         | _ -> unreachable ()
     in
-    eval env (ExprSpOp (OpQuote expr))
+    eval env expr cont
 
-let f_setq eval env args =
-    let args = list_of_clist args in
-    let () =
-        if List.length args mod 2 != 0 then
-            failwith ("SETQ: Odd number of arguments: " ^ string_of_expr @@ clist_of_list args)
-    in
-    let rec do_bind retval args =
-        match args with
-        | [] -> retval
-        | symbol :: value :: tl ->
-                let symbol = ensure_symbol "SETQ" symbol in
-                let value = eval env value in
-                let () =
-                    (match Env.find_var env symbol with
-                    | Some _ -> Env.replace_existing_var env symbol value
-                    | None -> Env.set_var env symbol value)
-                in
-                do_bind value tl
-        | _ -> unreachable ()
-    in
-    do_bind ExprNil args
-
-let f_progn eval env args =
-    let () =
-        match args with
-        | ExprNil -> unreachable ()
-        | _ -> ()
-    in
-    let rec do_eval env args =
-        match args with
-        | ExprCons (e, ExprNil) -> eval env e
-        | ExprCons (hd, tl) -> let () = ignore (eval env hd) in do_eval env tl
-        | _ -> unreachable ()
-    in
-    do_eval env args
-
-let f_if eval env args =
-    let (cond, ifthen, ifelse) =
-        match list_of_clist args with
-        | e1 :: e2 :: e3 :: [] -> (e1, e2, e3)
-        | _ -> unreachable ()
-    in
-    let cond = eval env cond in
-    match cond with
-    | ExprNil -> eval env ifelse
-    | _ -> eval env ifthen
-
-let f_defmacro _ env args =
-    let (name, expr) =
-        match args with
-        | ExprCons (hd, tl) -> (hd, tl)
-        | _ -> unreachable ()
-    in
-    let name = ensure_symbol "DEFMACRO" name in
-    let () = Macro.define env name expr in
-    ExprSymbol name
-
-let (f_macroexpand_1, f_macroexpand) =
-    let eval_args eval env args =
-        let expr =
+let f_apply eval env args cont =
+    let construct_args args =
+        let args = List.rev args in
+        let (l, rest) =
             match args with
-            | ExprCons (e, ExprNil) -> e
+            | l :: rest -> (l, rest)
             | _ -> unreachable ()
         in
-        eval env expr
+        let () = if Bool.not @@ is_list l then list_required "APPLY" l
+        in
+        let rec construct acc rest =
+            match rest with
+            | [] -> acc
+            | hd :: tl -> construct (ExprCons (hd, acc)) tl
+        in
+        construct l rest
     in
+    let (fn, args) =
+        match args with
+        | fn :: args -> (fn, args)
+        | _ -> unreachable ()
+    in
+    let (fn, env') =
+        match fn with
+        | ExprBuiltinFn fn -> (ExprSymbol ("#:" ^ fn), env)
+        | ExprFn fn ->
+                (* Make "..." must points to the desired function *)
+                let name = gensym () in
+                let env' = Env.new_scope env in
+                let () = Env.set_fn env' name (ExprFn fn) in
+                (ExprSymbol name, env')
+        | _ ->
+                let s = string_of_expr fn in
+                failwith ("APPLY: a function is required for the first argument: " ^ s)
+    in
+    let args = construct_args args in
+    eval env' (ExprCons (fn, args)) cont
+
+let (f_macroexpand_1, f_macroexpand) =
     let find_macro env expr =
         let (name, args) =
             match expr with
@@ -209,29 +223,121 @@ let (f_macroexpand_1, f_macroexpand) =
                 | _ -> None)
         | _ -> None
     in
-    let macroexpand_1 eval env args =
-        let expr = eval_args eval env args in
+    let macroexpand_1 eval env args cont =
+        let expr = List.hd args in
         match find_macro env expr with
-        | Some (name, args) -> Macro.apply eval env name args
-        | _ -> expr
+        | Some (name, args) -> Macro.apply eval env name args cont
+        | _ -> cont expr
     in
-    let macroexpand eval env args =
+    let macroexpand eval env args cont =
         let find_macro env expr =
             match expr with
             | ExprCons _ -> find_macro env expr
             | _ -> None
         in
-        let rec do_expand env expr =
+        let rec do_expand env expr cont =
             match find_macro env expr with
             | Some (name, args) ->
-                    let expr = Macro.apply eval env name args in
-                    do_expand env expr
-            | _ -> expr
+                    Macro.apply eval env name args (fun expr ->
+                        do_expand env expr cont)
+            | _ -> cont expr
         in
-        let expr = eval_args eval env args in
-        do_expand env expr
+        let expr = List.hd args in
+        do_expand env expr cont
     in
     (macroexpand_1, macroexpand)
+
+(* Special forms *)
+let f_progn eval env args cont =
+    let () =
+        match args with
+        | ExprNil -> unreachable ()
+        | _ -> ()
+    in
+    let rec do_eval env args cont =
+        match args with
+        | ExprCons (e, ExprNil) -> eval env e cont
+        | ExprCons (hd, tl) -> eval env hd (fun _ -> do_eval env tl cont)
+        | _ -> unreachable ()
+    in
+    do_eval env args cont
+
+let f_and eval env args cont =
+    let args = list_of_clist args in
+    let rec calc retval exprs cont =
+        match exprs with
+        | [] -> cont retval
+        | hd :: tl ->
+                eval env hd (fun hd ->
+                    match hd with
+                    | ExprNil -> cont ExprNil
+                    | v -> calc v tl cont)
+    in
+    calc ExprT args cont
+
+let f_or eval env args cont =
+    let args = list_of_clist args in
+    let rec calc exprs cont =
+        match exprs with
+        | [] -> cont ExprNil
+        | hd ::tl ->
+                eval env hd (fun hd ->
+                    match hd with
+                    | ExprNil -> calc tl cont
+                    | v -> cont v)
+    in
+    calc args cont
+
+let f_quote eval env args cont =
+    let expr =
+        match args with
+        | ExprCons (e, ExprNil) -> e
+        | _ -> unreachable ()
+    in
+    eval env (ExprSpOp (OpQuote expr)) cont
+
+let f_setq eval env args cont =
+    let args = list_of_clist args in
+    let () =
+        if List.length args mod 2 != 0 then
+            failwith ("SETQ: Odd number of arguments: " ^ string_of_expr @@ clist_of_list args)
+    in
+    let rec do_bind retval args =
+        match args with
+        | [] -> cont retval
+        | symbol :: value :: tl ->
+                let symbol = ensure_symbol "SETQ" symbol in
+                eval env value (fun value ->
+                    let () =
+                        match Env.find_var env symbol with
+                        | Some _ -> Env.replace_existing_var env symbol value
+                        | None -> Env.set_var env symbol value
+                    in
+                    do_bind value tl)
+        | _ -> unreachable ()
+    in
+    do_bind ExprNil args
+
+let f_if eval env args cont =
+    let (cond, ifthen, ifelse) =
+        match list_of_clist args with
+        | e1 :: e2 :: e3 :: [] -> (e1, e2, e3)
+        | _ -> unreachable ()
+    in
+    eval env cond (fun cond ->
+        match cond with
+        | ExprNil -> eval env ifelse cont
+        | _ -> eval env ifthen cont)
+
+let f_defmacro _ env args cont =
+    let (name, expr) =
+        match args with
+        | ExprCons (hd, tl) -> (hd, tl)
+        | _ -> unreachable ()
+    in
+    let name = ensure_symbol "DEFMACRO" name in
+    let () = Macro.define env name expr in
+    cont (ExprSymbol name)
 
 let parse_fn_params params =
     let rec do_parse acc params =
@@ -259,16 +365,16 @@ let parse_function_definition op defs =
     let params = parse_fn_params params in
     (params, body)
 
-let f_lambda =
+let f_lambda eval env args cont =
     let gen_lambda_id = unique_id_generator () in
-    let f_lambda _ env args =
+    let f_lambda _ env args cont =
         let (params, body) = parse_function_definition "LAMBDA" args in
         let name = "LAMBDA-" ^ string_of_int @@ gen_lambda_id () in
-        ExprFn (name, env, params, body)
+        cont (ExprFn (name, env, params, body))
     in
-    f_lambda
+    f_lambda eval env args cont
 
-let f_defun _ env args =
+let f_defun _ env args cont =
     let (name, fndef) =
         match args with
         | ExprCons (name, fndef) -> (name, fndef)
@@ -278,9 +384,9 @@ let f_defun _ env args =
     let (params, body) = parse_function_definition ("DEFUN: " ^ name) fndef in
     let fn = ExprFn (name, env, params, body) in
     let () = Env.set_fn env name fn in
-    fn
+    cont fn
 
-let let_common recdef eval env args =
+let let_common recdef eval env args cont =
     let op = if recdef then "LET*" else "LET" in
     let (binds, body) =
         match args with
@@ -301,28 +407,40 @@ let let_common recdef eval env args =
         in
         List.map ensure binds
     in
-    let env =
+    let do_bind eval env binds cont =
         if recdef then
-            let do_bind eval env (name, value) =
-                let value = eval env value in
-                Env.set_var env name value
+            let rec do_bind eval env binds cont =
+                match binds with
+                | (name, value) :: rest ->
+                        eval env value (fun value ->
+                            let () = Env.set_var env name value in
+                            do_bind eval env rest cont)
+                | [] -> cont env
             in
             let env = Env.new_scope env in
-            let () = List.iter (do_bind eval env) binds in
-            env
+            do_bind eval env binds cont
         else
-            let binds = List.map (fun (n, e) -> (n, eval env e)) binds in
-            let env = Env.new_scope env in
-            let () = List.iter (fun (n, v) -> Env.set_var env n v) binds
+            let rec eval_binds acc eval env binds cont =
+                match binds with
+                | (name, value) :: rest ->
+                        eval env value (fun value ->
+                            eval_binds ((name, value) :: acc) eval env rest cont)
+                | [] -> cont @@ List.rev acc
             in
-            env
+            let do_bind eval env binds cont =
+                eval_binds [] eval env binds (fun binds ->
+                    let () = List.iter (fun (n, v) -> Env.set_var env n v) binds in
+                    cont env)
+            in
+            do_bind eval env binds cont
     in
-    eval_body eval env (list_of_clist body)
+    do_bind eval env binds (fun env -> eval_body eval env (list_of_clist body) cont)
 
-let f_let eval env args = let_common false eval env args
-let f_letstar eval env args = let_common true eval env args
+let f_let eval env args cont = let_common false eval env args cont
+let f_letstar eval env args cont = let_common true eval env args cont
 
-let flet_common recdef eval env args =
+
+let flet_common recdef eval env args cont =
     let op = if recdef then "LABELS" else "FLET"
     in
     let (binds, body) =
@@ -358,142 +476,13 @@ let flet_common recdef eval env args =
         let () = List.iter (do_bind env') binds in
         env'
     in
-    eval_body eval env' (list_of_clist body)
+    eval_body eval env' (list_of_clist body) cont
 
-let f_flet eval env args = flet_common false eval env args
-let f_labels eval env args = flet_common true eval env args
-
-let f_eval eval env args =
-    let expr =
-        match args with
-        | ExprCons (e, ExprNil) -> e
-        | _ -> unreachable ()
-    in
-    eval env expr
-
-let f_add eval env args =
-    let args = List.map (eval env) (list_of_clist args) in
-    let args = List.map (ensure_int "ADD") args in
-    let v = List.fold_left ( + ) 0 args in
-    ExprInt v
-
-let f_sub eval env args =
-    let args = List.map (eval env) (list_of_clist args) in
-    let args = List.map (ensure_int "ADD") args in
-    let (seed, args) =
-        match args with
-        | v :: [] -> (0, [v])
-        | hd :: tl -> (hd, tl)
-        | [] -> unreachable ()
-    in
-    let v = List.fold_left ( - ) seed args in
-    ExprInt v
-
-let f_mul eval env args =
-    let args = List.map (eval env) (list_of_clist args) in
-    let args = List.map (ensure_int "ADD") args in
-    let v = List.fold_left ( * ) 1 args in
-    ExprInt v
-
-let f_and eval env args =
-    let args = list_of_clist args in
-    let rec calc retval exprs =
-        match exprs with
-        | [] -> retval
-        | hd :: tl ->
-                (match eval env hd with
-                | ExprNil -> ExprNil
-                | v -> calc v tl)
-    in
-    calc ExprT args
-
-let f_or eval env args =
-    let args = list_of_clist args in
-    let rec calc exprs =
-        match exprs with
-        | [] -> ExprNil
-        | hd ::tl ->
-                (match eval env hd with
-                | ExprNil -> calc tl
-                | v -> v)
-    in
-    calc args
-
-let f_eql eval env args  =
-    let (lhs, rhs) =
-        match args with
-        | ExprCons (lhs, ExprCons (rhs, ExprNil)) -> (lhs, rhs)
-        | _ -> unreachable ()
-    in
-    let lhs = eval env lhs in
-    let rhs = eval env rhs in
-    if lhs = rhs then
-        ExprT
-    else
-        ExprNil
-
-let lt_common name op eval env args =
-    let args = list_of_clist args in
-    let args = List.map (eval env) args in
-    let args = List.map (ensure_int name) args in
-    let rec fold args =
-        match args with
-        | _ :: [] -> ExprT
-        | e1 :: e2 :: tl ->
-                if op e1 e2 then
-                    fold (e2 :: tl)
-                else
-                    ExprNil
-        | _ -> unreachable ()
-    in
-    fold args
-
-let f_lt eval env args = lt_common "<" ( < ) eval env args
-let f_lte eval env args = lt_common "<=" ( <= ) eval env args
-
-let f_apply eval env args =
-    let construct_args args =
-        let args = List.rev args in
-        let (l, rest) =
-            match args with
-            | l :: rest -> (l, rest)
-            | _ -> unreachable ()
-        in
-        let () = if Bool.not @@ is_list l then list_required "APPLY" l
-        in
-        let rec construct acc rest =
-            match rest with
-            | [] -> acc
-            | hd :: tl -> construct (ExprCons (hd, acc)) tl
-        in
-        construct l rest
-    in
-    let args = List.map (eval env) (list_of_clist args) in
-    let (fn, args) =
-        match args with
-        | fn :: args -> (fn, args)
-        | _ -> unreachable ()
-    in
-    let (fn, env') =
-        match fn with
-        | ExprBuiltinFn fn -> (ExprSymbol ("#:" ^ fn), env)
-        | ExprFn fn ->
-                (* Make "..." must points to the desired function *)
-                let name = gensym () in
-                let env' = Env.new_scope env in
-                let () = Env.set_fn env' name (ExprFn fn) in
-                (ExprSymbol name, env')
-        | _ ->
-                let s = string_of_expr fn in
-                failwith ("APPLY: a function is required for the first argument: " ^ s)
-    in
-    let args = construct_args args in
-    eval env' (ExprCons (fn, args))
-
+let f_flet eval env args cont = flet_common false eval env args cont
+let f_labels eval env args cont = flet_common true eval env args cont
 
 let fn_table = [
     ("GENSYM", (f_gensym, Some 0, Some 0));
-    ("DEFMACRO", (f_defmacro, Some 2, None));
     ("MACROEXPAND-1", (f_macroexpand_1, Some 1, Some 1));
     ("MACROEXPAND", (f_macroexpand, Some 1, Some 1));
     ("CAR", (f_car, Some 1, Some 1));
@@ -501,8 +490,21 @@ let fn_table = [
     ("CONS", (f_cons, Some 2, Some 2));
     ("APPEND", (f_append, Some 2, Some 2));
     ("LIST", (f_list, None, None));
-    ("QUOTE", (f_quote, Some 1, None));
     ("EVAL", (f_eval, Some 1, Some 1));
+    ("+", (f_add, Some 1, None));
+    ("-", (f_sub, Some 1, None));
+    ("*", (f_mul, Some 1, None));
+    ("EQL", (f_eql, Some 2, Some 2));
+    ("<", (f_lt, Some 1, None));
+    ("<=", (f_lte, Some 1, None));
+    ("APPLY", (f_apply, Some 2, None));
+]
+
+let sp_table = [
+    ("DEFMACRO", (f_defmacro, Some 2, None));
+    ("PROGN", (f_progn, Some 1, None));
+    ("AND", (f_and, None, None));
+    ("OR", (f_or, None, None));
     ("LAMBDA", (f_lambda, Some 1, None));
     ("DEFUN", (f_defun, Some 2, None));
     ("LET", (f_let, Some 1, None));
@@ -510,17 +512,9 @@ let fn_table = [
     ("FLET", (f_flet, Some 1, None));
     ("LABELS", (f_labels, Some 1, None));
     ("IF", (f_if, Some 3, Some 3));
-    ("PROGN", (f_progn, Some 1, None));
     ("SETQ", (f_setq, Some 2, None));
-    ("+", (f_add, Some 1, None));
-    ("-", (f_sub, Some 1, None));
-    ("*", (f_mul, Some 1, None));
-    ("AND", (f_and, None, None));
-    ("OR", (f_or, None, None));
-    ("EQL", (f_eql, Some 2, Some 2));
-    ("<", (f_lt, Some 1, None));
-    ("<=", (f_lte, Some 1, None));
-    ("APPLY", (f_apply, Some 2, None));
+    ("QUOTE", (f_quote, Some 1, None));
 ]
 
-let find name = List.assoc_opt name fn_table
+let find_fn name = List.assoc_opt name fn_table
+let find_sp name = List.assoc_opt name sp_table
