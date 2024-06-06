@@ -481,6 +481,34 @@ let flet_common recdef eval env args cont =
 let f_flet eval env args cont = flet_common false eval env args cont
 let f_labels eval env args cont = flet_common true eval env args cont
 
+let f_reset eval env args cont =
+    let expr =
+        match args with
+        | ExprCons (expr, ExprNil) -> expr
+        | _ -> unreachable ()
+    in
+    cont @@ eval env expr (fun x -> x)
+
+let f_shift eval env args cont =
+    let (fname, expr) =
+        match args with
+        | ExprCons (fname, ExprCons (expr, ExprNil)) -> (fname, expr)
+        | _ -> unreachable ()
+    in
+    let fname = ensure_symbol "SHIFT" fname in
+    let fn =
+        let param = gensym () in
+        let body = clist_of_list [
+            ExprSymbol "#:RESET";
+            clist_of_list [ExprContinuation cont; ExprSymbol param]
+        ] in
+        ExprFn (fname, env, ([param], None), [body])
+    in
+    let env' = Env.new_scope env in
+    let () = Env.set_fn env' fname fn in
+    let expr = ExprCons (ExprSymbol "#:RESET", ExprCons (expr, ExprNil)) in
+    eval env' expr (fun x -> x)
+
 let fn_table = [
     ("GENSYM", (f_gensym, Some 0, Some 0));
     ("MACROEXPAND-1", (f_macroexpand_1, Some 1, Some 1));
@@ -514,6 +542,8 @@ let sp_table = [
     ("IF", (f_if, Some 3, Some 3));
     ("SETQ", (f_setq, Some 2, None));
     ("QUOTE", (f_quote, Some 1, None));
+    ("RESET", (f_reset, Some 1, Some 1));
+    ("SHIFT", (f_shift, Some 2, Some 2));
 ]
 
 let find_fn name = List.assoc_opt name fn_table

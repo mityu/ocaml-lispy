@@ -98,10 +98,10 @@ let test_eval_expr () =
     check [fn_of "F"; ExprSymbol "XYZ"] "(defun f () 'xyz) (f)";
     check [fn_of "F"; ExprInt 3] "(defun f (x) x) (f 3)";
     check [ExprSymbol "VAL"] "(let ((x 'val)) x)";
+    check [ExprNil] "(let ((x)) x)";
     check [ExprSymbol "XYZ"] "(if () 'abc 'xyz)";
     check [ExprSymbol "ABC"] "(if '(a) 'abc 'xyz)";
     check [ExprInt 3; ExprInt 3] "(setq x 3) x";
-    check [ExprNil] "(let ((x)) x)";
     check [ExprInt 12] "(+ 2 3 7)";
     check [ExprInt 3] "(+ 3)";
     check [ExprInt (-3)] "(- 3)";
@@ -214,6 +214,46 @@ let test_eval_scope () =
         |code});
     ()
 
+let test_eval_delimited_continuation () =
+    let check_last_value v src = check ("eval: " ^ src) v [List.hd @@ List.rev @@ run src] in
+    let check v src = check ("eval: " ^ src) v (run src) in
+    check [ExprInt (-13)] "(reset (- 4 (shift k (+ 3 (k 20)))))";
+    check [ExprInt (-19)] "(- 4 (reset (shift k (+ 3 (k 20)))))";
+    check [listform_of [ExprSymbol "A"]] "(reset (cons 'a (reset (shift f (shift g '())))))";
+    check [ExprInt 8] "(reset (+ 1 (shift k (* 2 (k 3)))))";
+    check_last_value [ExprInt 8]
+        {code|
+            (defun continue-with-3 ()
+                (shift k (k 3)))
+            (defun add3 (x)
+                (reset (+ x (continue-with-3))))
+            (add3 5)
+        |code};
+    check_last_value [listform_of [ExprSymbol "ABC"; ExprSymbol "XYZ"]]
+        {code|
+            (setq stack nil)
+            (defun either (a b)
+              (shift k (progn (k a) (k b))))
+            (reset
+              (let ((x (either 'abc 'xyz)))
+                (setq stack (append stack (list x)))))
+            stack
+        |code};
+    check_last_value [ExprInt 2]
+        {code|
+            (defun get ()
+              (shift k (lambda (state) ((k state) state))))
+            (defun tick ()
+              (shift k (lambda (state) ((k nil) (+ state 1)))))
+            (defun run-state (thunk)
+              ((reset
+                 (let ((result (apply thunk ())))
+                   (lambda (state) result)))
+               0))
+            (run-state (lambda () (tick) (tick) (get)))
+        |code};
+    ()
+
 let test_eval_bootstrap () =
     let run s =
         let env = Lispy.Env.empty () in
@@ -280,6 +320,7 @@ let () =
                 test_case "unquote" `Quick test_eval_unquote;
                 test_case "macro" `Quick test_eval_macro;
                 test_case "scope" `Quick test_eval_scope;
+                test_case "delimited continuation" `Quick test_eval_delimited_continuation;
                 test_case "bootstrap" `Quick test_eval_bootstrap;
             ]);
         ]
