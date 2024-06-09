@@ -176,37 +176,37 @@ let test_eval_macro () =
     ()
 
 let test_eval_scope () =
-    let check = check "same expr" in
-    let last_value retvals = [List.hd @@ List.rev retvals] in
-    check [ExprSymbol "MACRO"]
-        (last_value @@ run {code|
+    let check_last_value v src = check ("eval: " ^ src) v [List.hd @@ List.rev @@ run src] in
+    let check v src = check ("eval: " ^ src) v (run src) in
+    check_last_value [ExprSymbol "MACRO"]
+        {code|
             (defmacro m () ''macro)
             (defun call-m () (m))
             (defun m () 'fn)
             (call-m)
-        |code});
-    check [ExprSymbol "FN"]
-        (last_value @@ run {code|
+        |code};
+    check_last_value [ExprSymbol "FN"]
+        {code|
             (defmacro m () ''macro)
             (defun m () 'fn)
             (m)
-        |code});
+        |code};
     check [fn_of "F"; ExprSymbol "OUTER"; ExprSymbol "OUTER"]
-        (run {code|
+        {code|
             (defun f (x) 'OUTER)
             (flet ((f (x)
                         (if x (f x) 'INNER)))
                 (f 'x))
             (f 'x)
-        |code});
+        |code};
     check [fn_of "F"; ExprSymbol "INNER"; ExprSymbol "OUTER"]
-        (run {code|
+        {code|
             (defun f (x) 'OUTER)
             (labels ((f (x)
                         (if x (f nil) 'INNER)))
                 (f 'x))
             (f 'x)
-        |code});
+        |code};
     check_failure (Failure "No such symbol: #'M") (fun () -> ignore @@ run {code|
             (defun m () 'fun)
             (defmacro m () ''macro)
@@ -251,6 +251,19 @@ let test_eval_delimited_continuation () =
                    (lambda (state) result)))
                0))
             (run-state (lambda () (tick) (tick) (get)))
+        |code};
+    check_last_value [ExprInt 47]
+        {code|
+            (defun get ()
+              (shift k (lambda (state) ((k state) state))))
+            (defun set (num)
+              (shift k (lambda (state) ((k state) num))))
+            (defun run-state (thunk)
+              ((reset
+                 (let ((result (apply thunk ())))
+                   (lambda (state) result)))
+               0))
+            (run-state (lambda () (set 47) (get)))
         |code};
     ()
 
