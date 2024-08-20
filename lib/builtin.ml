@@ -77,6 +77,7 @@ let f_car _ _ args cont =
     in
     match arg with
     | ExprCons (car, _) -> cont car
+    | ExprNil -> cont ExprNil
     | _ -> list_required "CAR" arg
 
 let f_cdr _ _ args cont =
@@ -87,6 +88,7 @@ let f_cdr _ _ args cont =
     in
     match arg with
     | ExprCons (_, cdr) -> cont cdr
+    | ExprNil -> cont ExprNil
     | _ -> list_required "CDR" arg
 
 let f_cons _ _ args cont =
