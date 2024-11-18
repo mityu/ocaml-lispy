@@ -294,6 +294,19 @@ let test_eval_bootstrap () =
                 (setq x (cdr x)))
             retval
         |code};
+    check [
+            ExprNil;
+            listform_of [ExprInt 3; ExprInt 2; ExprInt 1];
+            ExprNil;
+            listform_of [ExprInt 1; ExprInt 2; ExprInt 3];
+        ] {code|
+            (setq retval ())
+            (setq x '(3 2 1))
+            (unless (eql x nil)
+                (setq retval (cons (car x) retval))
+                (setq x (cdr x)))
+            retval
+        |code};
     check [ExprNil] "(reverse nil)";
     check [listform_of [
             ExprSymbol "Z";

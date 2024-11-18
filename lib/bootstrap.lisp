@@ -6,6 +6,9 @@
                   nil)))
        (,n))))
 
+(defmacro unless (cnd &body body)
+  `(while (not ,cnd) ,@body))
+
 (defun 1+ (n)
   (+ n 1))
 
