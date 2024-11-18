@@ -68,3 +68,10 @@
                      (impl acc (cdr l)))
                    acc)))
     (impl (car l) (cdr l))))
+
+(defun nth (n l)
+  (if (< n 0)
+    nil ; TODO: raise error?
+    (if (eql n 0)
+      (car l)
+      (nth (1- n) (cdr l)))))

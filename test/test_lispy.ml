@@ -325,6 +325,11 @@ let test_eval_bootstrap () =
     check [ExprNil] "(>= 2 3 3 1)";
     check [ExprInt 13] "(max 3 5 13 7 11)";
     check [ExprInt 3] "(min 3 5 13 7 11)";
+    check [ExprInt 3] "(nth 0 '(3 5 7))";
+    check [ExprInt 5] "(nth 1 '(3 5 7))";
+    check [ExprInt 7] "(nth 2 '(3 5 7))";
+    check [ExprNil] "(nth 3 '(3 5 7))";
+    check [ExprNil] "(nth 4 '(3 5 7))";
     ()
 
 let () =
