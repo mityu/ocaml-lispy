@@ -82,7 +82,7 @@ let rec string_of_expr e =
             Printf.sprintf "#<FUNCTION:%s>" name
     | ExprBuiltinFn name -> Printf.sprintf "#<SYSTEM-FUNCTION:%s>" name
     | ExprSpecialForm name -> Printf.sprintf "#<SPECIAL-FORM:%s>" name
-    | ExprContinuation _ -> "continuation"
+    | ExprContinuation _ -> "#<CONTINUATION>"
     | ExprMacro macro ->
             let (name, _, _, _) = macro in
             Printf.sprintf "#<MACRO:%s>" name
